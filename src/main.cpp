@@ -118,6 +118,13 @@ unsigned long lastBatCheck = 0;
 bool displayAwake = true;
 unsigned long displayWakeTime = 0;
 const unsigned long DISPLAY_TIMEOUT = 60000; // 1 minute
++bool firstTimeSyncHandled = false;
++// --- TIME VALIDITY CHECK ---
++bool timeIsValid() {
++  time_t now = time(nullptr);
++  return now > 1700000000;  // Any timestamp after 2023
++}
+
 
 
 // Gear animation frames
@@ -426,6 +433,12 @@ String formatEvent(String label, time_t t, int offset) {
 String getSmartNextOpen() {
   time_t now = time(nullptr);
   struct tm* ptm = localtime(&now);
++  if (!timeIsValid()) {
++    return "Open --/--:-- (waiting)";
++  }
++
++  time_t now = time(nullptr);
+   struct tm* ptm = localtime(&now);
 
   // Today’s sunrise
   sun.setCurrentDate(ptm->tm_year + 1900, ptm->tm_mon + 1, ptm->tm_mday);
@@ -457,8 +470,14 @@ String getSmartNextOpen() {
 }
 
 String getSmartNextClose() {
-  time_t now = time(nullptr);
   struct tm* ptm = localtime(&now);
+  +  if (!timeIsValid()) {
++    return "Close --/--:-- (waiting)";
++  }
++
++  time_t now = time(nullptr);
+   struct tm* ptm = localtime(&now);
+
 
   // Today’s sunset
   sun.setCurrentDate(ptm->tm_year + 1900, ptm->tm_mon + 1, ptm->tm_mday);
@@ -1179,6 +1198,15 @@ void setup() {
   delay(1000);
   Serial.println("\n\n🐔 PoultryPortal v" + String(VERSION) + " Starting...");
   bootTime = millis();
+  +  // --- WAIT FOR VALID TIME BEFORE CONTINUING ---
++  unsigned long tStart = millis();
++  while (!timeIsValid() && millis() - tStart < 5000) {
++      delay(100);
++  }
+
+   showBootScreenSafe();
+   wakeDisplay();
+
 
   esp_reset_reason_t reason = esp_reset_reason();
   Serial.print("Boot reason: ");
@@ -1186,6 +1214,15 @@ void setup() {
   if (reason == ESP_RST_TASK_WDT) {
     addLog("Recovered from watchdog reset ⚠️");
   }
++  // --- WAIT FOR VALID TIME BEFORE CONTINUING ---
++  unsigned long tStart = millis();
++  while (!timeIsValid() && millis() - tStart < 5000) {
++      delay(100);
++  }
+
+   showBootScreenSafe();
+   wakeDisplay();
+
 
   pinMode(PIN_MOTOR_A, OUTPUT);
   pinMode(PIN_MOTOR_B, OUTPUT);
@@ -1232,7 +1269,6 @@ void setup() {
   setenv("TZ", timezoneStr.c_str(), 1);
   tzset();
 
-  time_t now = time(nullptr);
   int retries = 0;
   while (now < 100000 && retries < 50) {
     delay(100);
@@ -1372,6 +1408,14 @@ void loop() {
   if (displayAwake && millis() - displayWakeTime > DISPLAY_TIMEOUT) {
       sleepDisplay();
   }
-
++  // --- FORCE DISPLAY REFRESH WHEN TIME FIRST BECOMES VALID ---
++  if (!firstTimeSyncHandled && timeIsValid()) {
++      firstTimeSyncHandled = true;
++      lastScreenSwitch = 0;   // force immediate redraw
++  }
   updateDisplayManager();
+   // OLED auto-sleep
+   if (displayAwake && millis() - displayWakeTime > DISPLAY_TIMEOUT) {
+       sleepDisplay();
+
 }
