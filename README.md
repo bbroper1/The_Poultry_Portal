@@ -1,0 +1,216 @@
+🐔 PoultryPortal — Automated Coop Door Controller
+![Build](https://github.com/bbroper1/The_Poultry_Portal/actions/workflows/build.yml/badge.svg)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![PlatformIO](https://img.shields.io/badge/platformio-ESP32-orange)
+![Version](https://img.shields.io/badge/version-v1.0.0-green)
+git add README.md
+A fully modular, production‑grade ESP32 firmware for managing an automated poultry coop door with sunrise/sunset scheduling, battery monitoring, OTA updates, Telegram control, and a clean OLED UI.
+
+🚀 Features
+🌅 Smart Sunrise/Sunset Automation
+Automatically opens and closes based on real solar times
+
+Supports custom offsets for early/late open/close
+
+Boot‑time correction ensures the door is always in the correct state
+
+📡 Telegram Bot Control
+Open/close commands
+
+Status reports
+
+Health checks
+
+Debug tools
+
+Secure user ID filtering
+
+🔋 Battery + Power Monitoring
+INA219 voltage/current sensing
+
+Daily mAh tracking
+
+Low‑battery alerts
+
+Critical battery protection
+
+🖥️ OLED Display
+Live status
+
+Temperature
+
+Battery voltage
+
+Door state
+
+Debug screens
+
+🌡️ Temperature Monitoring
+Overheat protection
+
+Live temperature display
+
+Health reporting
+
+🔧 Modular Architecture
+Every subsystem is isolated into its own module:
+
+Motor
+
+Display
+
+Battery
+
+Energy
+
+Scheduler
+
+Telegram
+
+Time utilities
+
+WiFi setup
+
+Auto‑mode logic
+
+System status
+
+Logging
+
+Configuration
+
+This makes the firmware easy to maintain, extend, and debug.
+
+🔄 OTA Updates
+Secure OTA via ArduinoOTA
+
+Optional password protection
+
+🛠️ Hardware Watchdog Safe
+Non‑blocking loop
+
+Regular WDT resets
+
+📁 Project Structure
+Code
+PoultryPortal/
+│
+├── include/
+│   ├── AutoMode.h
+│   ├── Battery.h
+│   ├── Config.h
+│   ├── Display.h
+│   ├── Energy.h
+│   ├── Globals.h
+│   ├── HardwarePins.h
+│   ├── Logging.h
+│   ├── Motor.h
+│   ├── Scheduler.h
+│   ├── StringUtils.h
+│   ├── SystemStatus.h
+│   ├── TelegramRouter.h
+│   ├── Temperature.h
+│   ├── TimeUtils.h
+│   ├── WiFiSetup.h
+│
+├── src/
+│   ├── main.cpp
+│   ├── AutoMode.cpp
+│   ├── Battery.cpp
+│   ├── Config.cpp
+│   ├── Display.cpp
+│   ├── Energy.cpp
+│   ├── Globals.cpp
+│   ├── HardwarePins.cpp
+│   ├── Logging.cpp
+│   ├── Motor.cpp
+│   ├── Scheduler.cpp
+│   ├── StringUtils.cpp
+│   ├── SystemStatus.cpp
+│   ├── TelegramRouter.cpp
+│   ├── TelegramHandlers.cpp
+│   ├── Temperature.cpp
+│   ├── TimeUtils.cpp
+│   ├── WiFiSetup.cpp
+│
+└── platformio.ini
+🔌 Hardware Requirements
+ESP32 Dev Module
+
+INA219 current/voltage sensor
+
+SSD1306 OLED (I²C)
+
+Limit switches (open/close detection)
+
+Motor driver (L298N, BTS7960, or similar)
+
+12V battery or solar system
+
+Temperature sensor (e.g., DS18B20 or analog sensor)
+
+⚙️ Setup Instructions
+1. Clone the repo
+bash
+git clone https://github.com/yourusername/PoultryPortal.git
+cd PoultryPortal
+2. Install PlatformIO
+https://platformio.org/install
+
+3. Configure WiFi + Telegram
+Edit your configuration via the Telegram bot or by modifying defaults in Config.cpp.
+
+4. Build & Upload
+bash
+pio run --target upload
+5. OTA Updates
+Once running:
+
+bash
+pio run --target upload --upload-port <device-ip>
+📲 Telegram Commands
+Command	Description
+/open	Open the door
+/close	Close the door
+/status	Full system status
+/health	Battery + temperature health
+/auto	Enable/disable auto mode
+/offsets	Set sunrise/sunset offsets
+/debug	Debug tools
+🧠 Architecture Overview
+The firmware is built around clean separation of concerns:
+
+main.cpp → High‑level orchestration only
+
+AutoMode → Sunrise/sunset logic
+
+Scheduler → Solar calculations
+
+Motor → Door movement + safety
+
+Battery → Voltage/current + alerts
+
+Energy → Daily mAh tracking
+
+Display → OLED UI
+
+TelegramRouter → Command routing
+
+TimeUtils → NTP + timezone + uptime
+
+WiFiSetup → WiFiManager wrapper
+
+SystemStatus → Health snapshots
+
+Logging → Persistent logs
+
+Config → Preferences storage
+
+This makes the system robust, testable, and easy to extend.
+
+🐛 Debugging
+Enable debug mode via Telegram:
+
+Code
+/debug
+Or view logs on the OLED or serial monitor.
