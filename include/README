@@ -1,37 +1,211 @@
+🐔 PoultryPortal — Automated Coop Door Controller
+A fully modular, production‑grade ESP32 firmware for managing an automated poultry coop door with sunrise/sunset scheduling, battery monitoring, OTA updates, Telegram control, and a clean OLED UI.
 
-This directory is intended for project header files.
+🚀 Features
+🌅 Smart Sunrise/Sunset Automation
+Automatically opens and closes based on real solar times
 
-A header file is a file containing C declarations and macro definitions
-to be shared between several project source files. You request the use of a
-header file in your project source file (C, C++, etc) located in `src` folder
-by including it, with the C preprocessing directive `#include'.
+Supports custom offsets for early/late open/close
 
-```src/main.c
+Boot‑time correction ensures the door is always in the correct state
 
-#include "header.h"
+📡 Telegram Bot Control
+Open/close commands
 
-int main (void)
-{
- ...
-}
-```
+Status reports
 
-Including a header file produces the same results as copying the header file
-into each source file that needs it. Such copying would be time-consuming
-and error-prone. With a header file, the related declarations appear
-in only one place. If they need to be changed, they can be changed in one
-place, and programs that include the header file will automatically use the
-new version when next recompiled. The header file eliminates the labor of
-finding and changing all the copies as well as the risk that a failure to
-find one copy will result in inconsistencies within a program.
+Health checks
 
-In C, the convention is to give header files names that end with `.h'.
+Debug tools
 
-Read more about using header files in official GCC documentation:
+Secure user ID filtering
 
-* Include Syntax
-* Include Operation
-* Once-Only Headers
-* Computed Includes
+🔋 Battery + Power Monitoring
+INA219 voltage/current sensing
 
-https://gcc.gnu.org/onlinedocs/cpp/Header-Files.html
+Daily mAh tracking
+
+Low‑battery alerts
+
+Critical battery protection
+
+🖥️ OLED Display
+Live status
+
+Temperature
+
+Battery voltage
+
+Door state
+
+Debug screens
+
+🌡️ Temperature Monitoring
+Overheat protection
+
+Live temperature display
+
+Health reporting
+
+🔧 Modular Architecture
+Every subsystem is isolated into its own module:
+
+Motor
+
+Display
+
+Battery
+
+Energy
+
+Scheduler
+
+Telegram
+
+Time utilities
+
+WiFi setup
+
+Auto‑mode logic
+
+System status
+
+Logging
+
+Configuration
+
+This makes the firmware easy to maintain, extend, and debug.
+
+🔄 OTA Updates
+Secure OTA via ArduinoOTA
+
+Optional password protection
+
+🛠️ Hardware Watchdog Safe
+Non‑blocking loop
+
+Regular WDT resets
+
+📁 Project Structure
+Code
+PoultryPortal/
+│
+├── include/
+│   ├── AutoMode.h
+│   ├── Battery.h
+│   ├── Config.h
+│   ├── Display.h
+│   ├── Energy.h
+│   ├── Globals.h
+│   ├── HardwarePins.h
+│   ├── Logging.h
+│   ├── Motor.h
+│   ├── Scheduler.h
+│   ├── StringUtils.h
+│   ├── SystemStatus.h
+│   ├── TelegramRouter.h
+│   ├── Temperature.h
+│   ├── TimeUtils.h
+│   ├── WiFiSetup.h
+│
+├── src/
+│   ├── main.cpp
+│   ├── AutoMode.cpp
+│   ├── Battery.cpp
+│   ├── Config.cpp
+│   ├── Display.cpp
+│   ├── Energy.cpp
+│   ├── Globals.cpp
+│   ├── HardwarePins.cpp
+│   ├── Logging.cpp
+│   ├── Motor.cpp
+│   ├── Scheduler.cpp
+│   ├── StringUtils.cpp
+│   ├── SystemStatus.cpp
+│   ├── TelegramRouter.cpp
+│   ├── TelegramHandlers.cpp
+│   ├── Temperature.cpp
+│   ├── TimeUtils.cpp
+│   ├── WiFiSetup.cpp
+│
+└── platformio.ini
+🔌 Hardware Requirements
+ESP32 Dev Module
+
+INA219 current/voltage sensor
+
+SSD1306 OLED (I²C)
+
+Limit switches (open/close detection)
+
+Motor driver (L298N, BTS7960, or similar)
+
+12V battery or solar system
+
+Temperature sensor (e.g., DS18B20 or analog sensor)
+
+⚙️ Setup Instructions
+1. Clone the repo
+bash
+git clone https://github.com/yourusername/PoultryPortal.git
+cd PoultryPortal
+2. Install PlatformIO
+https://platformio.org/install
+
+3. Configure WiFi + Telegram
+Edit your configuration via the Telegram bot or by modifying defaults in Config.cpp.
+
+4. Build & Upload
+bash
+pio run --target upload
+5. OTA Updates
+Once running:
+
+bash
+pio run --target upload --upload-port <device-ip>
+📲 Telegram Commands
+Command	Description
+/open	Open the door
+/close	Close the door
+/status	Full system status
+/health	Battery + temperature health
+/auto	Enable/disable auto mode
+/offsets	Set sunrise/sunset offsets
+/debug	Debug tools
+🧠 Architecture Overview
+The firmware is built around clean separation of concerns:
+
+main.cpp → High‑level orchestration only
+
+AutoMode → Sunrise/sunset logic
+
+Scheduler → Solar calculations
+
+Motor → Door movement + safety
+
+Battery → Voltage/current + alerts
+
+Energy → Daily mAh tracking
+
+Display → OLED UI
+
+TelegramRouter → Command routing
+
+TimeUtils → NTP + timezone + uptime
+
+WiFiSetup → WiFiManager wrapper
+
+SystemStatus → Health snapshots
+
+Logging → Persistent logs
+
+Config → Preferences storage
+
+This makes the system robust, testable, and easy to extend.
+
+🐛 Debugging
+Enable debug mode via Telegram:
+
+Code
+/debug
+Or view logs on the OLED or serial monitor.
