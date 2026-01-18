@@ -2,12 +2,13 @@
 #include <Preferences.h>
 #include <time.h>
 #include "Motor.h"
+#include "Globals.h"
 
 // -------------------------------
 // Internal module state
 // -------------------------------
-static float   s_todayUsedmAh = 0.0f;
-static float   s_historymAh[30] = {0};
+static float   s_todayUsedmAh      = 0.0f;
+static float   s_historymAh[30]    = {0};
 static unsigned long s_lastEnergyCalc = 0;
 static time_t  s_lastResetTimestamp = 0;
 static String  s_lastDailyResetStr = "Never";
@@ -90,7 +91,7 @@ void Energy_setLastReset(time_t t) {
 void Energy_loadFromPrefs() {
     if (!s_energyPrefs.begin("energy", true)) return;
 
-    s_todayUsedmAh = s_energyPrefs.getFloat("today", 0.0f);
+    s_todayUsedmAh      = s_energyPrefs.getFloat("today", 0.0f);
     s_lastResetTimestamp = s_energyPrefs.getULong("lastreset", 0);
 
     if (s_energyPrefs.isKey("history")) {
@@ -171,6 +172,8 @@ void Energy_begin() {
 }
 
 void Energy_update() {
+    if (!inaOK) return;
+
     unsigned long now = millis();
 
     // Protect against rollover or negative dt

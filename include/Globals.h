@@ -61,3 +61,7 @@ extern SunSet sun;
 //  BOOT STATE
 // -------------------------------
 extern unsigned long bootTime;
+
+extern bool inaOK;
+extern float motorCurrent;
+extern bool factoryResetRequested;

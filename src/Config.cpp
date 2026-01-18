@@ -1,6 +1,6 @@
 #include "Config.h"
 #include <Preferences.h>
-#include "Energy.h"   // for Energy_getTodaymAh()
+#include "Energy.h"
 
 static Preferences prefs;
 
@@ -9,7 +9,9 @@ static float myLat = 30.30;
 static float myLong = -97.37;
 static String timezoneStr = "CST6CDT,M3.2.0,M11.1.0";
 static String otaPassword = "";
+
 static String telegramToken = "";
+static String telegramChatId = "";
 
 static int openOffset = 15;
 static int closeOffset = -15;
@@ -28,9 +30,8 @@ void Config_load() {
         timezoneStr = prefs.getString("tzStr", timezoneStr);
         otaPassword = prefs.getString("otaPass", otaPassword);
 
-        String storedToken = prefs.getString("bot_token", "");
-        if (storedToken.length() > 0)
-            telegramToken = storedToken;
+        telegramToken  = prefs.getString("botToken", telegramToken);
+        telegramChatId = prefs.getString("chatId", telegramChatId);
 
         openOffset = prefs.getInt("openOff", openOffset);
         closeOffset = prefs.getInt("closeOff", closeOffset);
@@ -54,8 +55,8 @@ void Config_save() {
         prefs.putString("tzStr", timezoneStr);
         prefs.putString("otaPass", otaPassword);
 
-        if (telegramToken.length() > 0)
-            prefs.putString("bot_token", telegramToken);
+        prefs.putString("botToken", telegramToken);
+        prefs.putString("chatId", telegramChatId);
 
         prefs.putInt("openOff", openOffset);
         prefs.putInt("closeOff", closeOffset);
@@ -76,7 +77,10 @@ float Config_getLat() { return myLat; }
 float Config_getLong() { return myLong; }
 String Config_getTimezone() { return timezoneStr; }
 String Config_getOTAPassword() { return otaPassword; }
-String Config_getTelegramToken() { return telegramToken; }
+
+String Config_getBotToken() { return telegramToken; }
+String Config_getChatID()   { return telegramChatId; }
+
 int Config_getOpenOffset() { return openOffset; }
 int Config_getCloseOffset() { return closeOffset; }
 int Config_getMotorTimeout() { return motorTimeoutSec; }
@@ -89,7 +93,10 @@ void Config_setLat(float v) { myLat = v; }
 void Config_setLong(float v) { myLong = v; }
 void Config_setTimezone(const String& tz) { timezoneStr = tz; }
 void Config_setOTAPassword(const String& pass) { otaPassword = pass; }
-void Config_setTelegramToken(const String& token) { telegramToken = token; }
+
+void Config_setBotToken(const String& token) { telegramToken = token; }
+void Config_setChatID(const String& id)      { telegramChatId = id; }
+
 void Config_setOpenOffset(int v) { openOffset = v; }
 void Config_setCloseOffset(int v) { closeOffset = v; }
 void Config_setMotorTimeout(int v) { motorTimeoutSec = v; }

@@ -63,7 +63,7 @@ void Temperature_update() {
             Motor_stop();
             addLog("OVERHEAT! 🔥");
 
-            if (Config_getTelegramToken().length() > 0) {
+            if (Config_getBotToken().length() > 0) {
                 bot.sendTo(userid,
                     ("🔥 CRITICAL TEMP: " + String(s_tempC, 1) +
                      "°C - Motor stopped!").c_str());
@@ -76,7 +76,7 @@ void Temperature_update() {
     if (Temperature_isWarning() && !s_warningShown) {
         addLog("High Temp ⚠️");
 
-        if (Config_getTelegramToken().length() > 0) {
+        if (Config_getBotToken().length() > 0) {
             bot.sendTo(userid,
                 ("⚠️ High temperature: " + String(s_tempC, 1) + "°C").c_str());
         }

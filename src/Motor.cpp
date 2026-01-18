@@ -1,19 +1,15 @@
 #include "Motor.h"
-#include "HardwarePins.h" 
+#include "HardwarePins.h"
 #include "Globals.h"
 #include "Config.h"
 #include "Battery.h"
 #include "Temperature.h"
 #include "Logging.h"
 #include <Arduino.h>
-#include <AsyncTelegram2.h>
 #include <Adafruit_INA219.h>
 
-   
-// External dependencies from main.cpp
+// External dependencies
 extern float CRITICAL_VOLTAGE;
-extern float Battery_getVoltage();
-extern float esp32Temp;
 extern float TEMP_CRITICAL;
 extern Adafruit_INA219 ina219;
 
@@ -25,22 +21,22 @@ static MotorDoorState s_state = M_CLOSED;
 static unsigned long s_motorStartTime = 0;
 static unsigned long s_openLimitTriggeredAt = 0;
 static unsigned long s_closeLimitTriggeredAt = 0;
-static unsigned int s_openCycles = 0;
-static unsigned int s_closeCycles = 0;
-
-unsigned int Motor_getOpenCycles() { return s_openCycles; }
-unsigned int Motor_getCloseCycles() { return s_closeCycles; }
-
+static unsigned int  s_openCycles = 0;
+static unsigned int  s_closeCycles = 0;
 
 // -------------------------------
 // Public state access
 // -------------------------------
+unsigned int Motor_getOpenCycles()  { return s_openCycles; }
+unsigned int Motor_getCloseCycles() { return s_closeCycles; }
+
 MotorDoorState Motor_getState() {
     return s_state;
 }
 
-float Motor_getCurrent() { 
-    return ina219.getCurrent_mA(); 
+float Motor_getCurrent() {
+    if (!inaOK) return 0.0f;
+    return ina219.getCurrent_mA();
 }
 
 // -------------------------------
@@ -90,9 +86,10 @@ void Motor_requestClose() {
 
 void Motor_stop() {
     motorStop();
-    if (s_state == M_OPENING) s_state = M_OPEN;
+
+    if (s_state == M_OPENING)      s_state = M_OPEN;
     else if (s_state == M_CLOSING) s_state = M_CLOSED;
-    else s_state = M_STUCK;
+    else                           s_state = M_STUCK;
 
     addLog("Motor STOP");
 }
@@ -103,26 +100,27 @@ void Motor_stop() {
 void Motor_update() {
     unsigned long now = millis();
 
+    // Safety checks
     if (Battery_getVoltage() < CRITICAL_VOLTAGE) {
-    Motor_stop();
-    addLog("Motor STOP: low battery");
-    return;
+        Motor_stop();
+        addLog("Motor STOP: low battery");
+        return;
     }
+
     if (Temperature_getCelsius() > Temperature_getCriticalC()) {
         Motor_stop();
         addLog("Motor STOP: high temperature");
         return;
     }
 
-
-    // Read limit switches
+    // Limit switches
     bool openHit  = (digitalRead(PIN_LIMIT_OPEN)  == LOW);
     bool closeHit = (digitalRead(PIN_LIMIT_CLOSE) == LOW);
 
-    // Read motor current
+    // Motor current
     float current_mA = Motor_getCurrent();
 
-    // Config values
+    // Config
     int pinchThreshold = Config_getPinchThreshold();
     int timeoutSec     = Config_getMotorTimeout();
 
@@ -131,7 +129,6 @@ void Motor_update() {
     // -------------------------------
     if (s_state == M_OPENING) {
 
-        // Limit switch hit
         if (openHit) {
             if (s_openLimitTriggeredAt == 0)
                 s_openLimitTriggeredAt = now;
@@ -145,7 +142,6 @@ void Motor_update() {
             }
         }
 
-        // Stall detection
         if (current_mA > pinchThreshold) {
             motorStop();
             s_state = M_STUCK;
@@ -153,7 +149,6 @@ void Motor_update() {
             return;
         }
 
-        // Timeout
         if (now - s_motorStartTime > timeoutSec * 1000) {
             motorStop();
             s_state = M_STUCK;
@@ -167,7 +162,6 @@ void Motor_update() {
     // -------------------------------
     if (s_state == M_CLOSING) {
 
-        // Limit switch hit
         if (closeHit) {
             if (s_closeLimitTriggeredAt == 0)
                 s_closeLimitTriggeredAt = now;
@@ -181,7 +175,6 @@ void Motor_update() {
             }
         }
 
-        // Stall detection
         if (current_mA > pinchThreshold) {
             motorStop();
             s_state = M_STUCK;
@@ -189,7 +182,6 @@ void Motor_update() {
             return;
         }
 
-        // Timeout
         if (now - s_motorStartTime > timeoutSec * 1000) {
             motorStop();
             s_state = M_STUCK;
@@ -197,7 +189,13 @@ void Motor_update() {
             return;
         }
     }
+
+    motorCurrent = current_mA;
 }
+
+// -------------------------------
+// Initialization
+// -------------------------------
 void Motor_begin() {
     ledcSetup(PWM_CH_A, PWM_FREQ, PWM_RESOLUTION);
     ledcSetup(PWM_CH_B, PWM_FREQ, PWM_RESOLUTION);

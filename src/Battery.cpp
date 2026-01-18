@@ -29,21 +29,13 @@ float Battery_getWarningVoltage() { return BATTERY_WARNING_VOLTAGE; }
 float Battery_getCriticalVoltage() { return BATTERY_CRITICAL_VOLTAGE; }
 
 // ---------------------------------------------------------
-//  BEGIN (UNIFIED VERSION)
+//  BEGIN
 // ---------------------------------------------------------
 void Battery_begin() {
-    Serial.println("Initializing INA219...");
 
-    if (!ina219.begin(&Wire)) {
-        Serial.println("⚠️ INA219 init failed");
-        addLog("INA219 init failed ⚠️");
-        return;
-    }
+    // INA219 is initialized in setup(), not here.
+    // We only load prefs + daily reset logic.
 
-    Serial.println("✅ INA219 ready");
-    addLog("INA219 initialized ⚡");
-
-    // Load stored values
     prefs.begin(NAMESPACE, false);
 
     float savedToday = prefs.getFloat("todaymAh", 0.0f);
@@ -52,7 +44,7 @@ void Battery_begin() {
 
     // Daily reset logic
     time_t now = time(nullptr);
-    struct tm* nowTm = localtime(&now);
+    struct tm* nowTm  = localtime(&now);
     struct tm* lastTm = localtime(&lastReset);
 
     bool newDay = false;
@@ -83,6 +75,13 @@ void Battery_begin() {
 //  UPDATE
 // ---------------------------------------------------------
 void Battery_update() {
+
+    if (!inaOK) {
+        s_lastVoltage = 0.0f;
+        s_lastCurrent = 0.0f;
+        return;
+    }
+
     s_lastVoltage = ina219.getBusVoltage_V();
     s_lastCurrent = ina219.getCurrent_mA();
 }

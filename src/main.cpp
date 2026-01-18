@@ -16,6 +16,9 @@
 #include <Preferences.h>
 #include <WiFiManager.h>
 #include <esp_task_wdt.h>
+#include <nvs.h>
+#include <nvs_flash.h>
+
 
 // -------------------------------
 //  MODULES
@@ -57,16 +60,72 @@ void setup() {
 
     bootTime = millis();
 
-    // --- CORE HARDWARE ---
+    // ---------------------------------------------------------
+    //  FACTORY RESET VIA OVERRIDE SWITCH (CLOSE POSITION)
+    // ---------------------------------------------------------
+    pinMode(14, INPUT_PULLUP);   // CLOSE override
+    pinMode(27, INPUT_PULLUP);   // OPEN override
+
+    Serial.print("GPIO14 at boot = ");
+    Serial.println(digitalRead(14));
+
+    bool closeOverride = (digitalRead(14) == LOW);
+
+    if (closeOverride) {
+        Serial.println("⚠️ Manual CLOSE override detected at boot");
+        Serial.println("⚠️ Performing factory reset...");
+
+        // Tell WiFiSetup to call wm.resetSettings()
+        factoryResetRequested = true;
+
+        // ---- WIPE ALL APP PREFERENCES ----
+        Preferences prefs;
+
+        prefs.begin("pportal", false);
+        prefs.clear();
+        prefs.end();
+
+        prefs.begin("energy", false);
+        prefs.clear();
+        prefs.end();
+
+        prefs.begin("battery", false);
+        prefs.clear();
+        prefs.end();
+
+        prefs.begin("telegram", false);
+        prefs.clear();
+        prefs.end();
+
+        Serial.println("🧹 Preferences cleared");
+
+        delay(1000);
+    }
+
+    // ---------------------------------------------------------
+    //  CORE HARDWARE
+    // ---------------------------------------------------------
     HardwarePins_init();
     Temperature_begin();
     Motor_begin();
     Display_begin();
 
-    // --- LOAD CONFIG ---
+    // ---------------------------------------------------------
+    //  LOAD CONFIG
+    // ---------------------------------------------------------
     Config_load();
 
-    // --- WIFI ---
+    String t = Config_getBotToken();
+    Serial.print("Stored Bot Token (debug): >");
+    Serial.print(t);
+    Serial.println("<");
+    Serial.print("Length: ");
+    Serial.println(t.length());
+
+
+    // ---------------------------------------------------------
+    //  WIFI
+    // ---------------------------------------------------------
     if (!WiFiSetup_begin()) {
         Serial.println("❌ WiFi failed — rebooting");
         delay(2000);
@@ -74,34 +133,49 @@ void setup() {
     }
     Serial.println("✅ WiFi connected");
 
-    // --- I2C BUS ---
+    // ---------------------------------------------------------
+    //  I2C BUS + INA219
+    // ---------------------------------------------------------
     Wire.begin(21, 22);
     Wire.setClock(400000);
 
-    // --- BATTERY / INA219 ---
+    Serial.println("Initializing INA219...");
+    inaOK = ina219.begin(&Wire);
+
+    if (!inaOK) {
+        Serial.println("⚠️ INA219 init failed");
+    } else {
+        Serial.println("✅ INA219 ready");
+    }
+
+    // ---------------------------------------------------------
+    //  BATTERY / ENERGY / TIME
+    // ---------------------------------------------------------
     Battery_begin();
-
-    // --- TIME SYNC ---
     TimeUtils_sync();
+    Energy_begin();
 
-    // --- TELEGRAM ---
+    // ---------------------------------------------------------
+    //  TELEGRAM
+    // ---------------------------------------------------------
     secured_client.setInsecure();
     TelegramRouter_init();
 
-    // --- OTA ---
+    // ---------------------------------------------------------
+    //  OTA
+    // ---------------------------------------------------------
     ArduinoOTA.setHostname("PoultryPortal");
     if (Config_getOTAPassword().length() > 0) {
         ArduinoOTA.setPassword(Config_getOTAPassword().c_str());
     }
     ArduinoOTA.begin();
 
-    // --- ENERGY TRACKING ---
-    Energy_begin();
-
     addLog("Online 🚀");
     Serial.println("=== BOOT COMPLETE ===\n");
 
-    // --- AUTO MODE BOOT CORRECTION ---
+    // ---------------------------------------------------------
+    //  AUTO MODE BOOT CORRECTION
+    // ---------------------------------------------------------
     AutoMode_bootCorrection();
 
     bootTime = millis();

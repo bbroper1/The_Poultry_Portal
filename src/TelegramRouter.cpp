@@ -21,10 +21,19 @@ extern AsyncTelegram2 bot;
 // ---------------------------------------------------------
 static bool pollTelegram(TBMessage &msg) {
     unsigned long start = millis();
+    Serial.println("Polling Telegram...");
     while (millis() - start < 300) {
         if (bot.getNewMessage(msg)) return true;
         delay(5);
     }
+        if (bot.getNewMessage(msg)) {
+        Serial.print("Got message: ");
+        Serial.println(msg.text);
+        Serial.print("From: ");
+        Serial.println(msg.sender.id);
+        return true;
+    }
+
     return false;
 }
 
@@ -73,6 +82,7 @@ ReplyKeyboard buildDebugKeyboard() {
 //  ROUTER
 // ---------------------------------------------------------
 void TelegramRouter_handle() {
+    Serial.println("Router running");
     if (millis() - bootTime < 8000) return;
     if (!telegramEnabled) return;
 
@@ -228,5 +238,22 @@ void TelegramRouter_handle() {
 //  INIT
 // ---------------------------------------------------------
 void TelegramRouter_init() {
-    // Reserved for future setup
+    String token = Config_getBotToken();
+    String chat  = Config_getChatID();
+
+    if (token.length() == 0 || chat.length() == 0) {
+        Serial.println("⚠️ Telegram disabled — missing token or chat ID");
+        telegramEnabled = false;
+        return;
+    }
+
+    bot.setTelegramToken(token.c_str());  
+    bot.setUpdateTime(1000);
+    bot.begin();
+    Serial.println("Testing Telegram connection...");
+    Serial.println("Telegram initialized (no testConnection available)");
+
+    telegramEnabled = true;
+
+    Serial.println("📨 Telegram bot initialized");
 }

@@ -37,3 +37,7 @@ bool remoteOverride = false;
 bool telegramEnabled = true;
 
 int64_t userid = 0;
+bool inaOK = false;
+float motorCurrent = 0.0f;
+bool factoryResetRequested = false;
+
