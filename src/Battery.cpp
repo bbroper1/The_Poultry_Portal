@@ -75,6 +75,12 @@ void Battery_begin() {
 //  UPDATE
 // ---------------------------------------------------------
 void Battery_update() {
+    static unsigned long lastBatteryRead = 0;
+    
+    // Only read the sensor every 2 seconds. 
+    // Frequent I2C reads can interfere with WiFi stability on some ESP32 pins.
+    if (millis() - lastBatteryRead < 2000) return;
+    lastBatteryRead = millis();
 
     if (!inaOK) {
         s_lastVoltage = 0.0f;
@@ -84,6 +90,9 @@ void Battery_update() {
 
     s_lastVoltage = ina219.getBusVoltage_V();
     s_lastCurrent = ina219.getCurrent_mA();
+    
+    // Update global voltage for other modules
+    inputVoltage = s_lastVoltage; 
 }
 
 // ---------------------------------------------------------

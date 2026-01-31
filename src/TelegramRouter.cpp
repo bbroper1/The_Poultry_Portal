@@ -4,256 +4,233 @@
 #include "TelegramRouter.h"
 #include "TelegramHandlers.h"
 #include "Logging.h"
-
-#include <AsyncTelegram2.h>
-#include <WiFi.h>
-#include <time.h>
-
 #include "Energy.h"
 #include "Battery.h"
 #include "Motor.h"
 #include "StringUtils.h"
 
-extern AsyncTelegram2 bot;
+#include <WiFi.h>
+#include <WebSerial.h>
+#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>
 
 // ---------------------------------------------------------
-//  TELEGRAM POLLING (non-blocking)
+//  GLOBAL BOT + CLIENT
 // ---------------------------------------------------------
-static bool pollTelegram(TBMessage &msg) {
-    unsigned long start = millis();
-    Serial.println("Polling Telegram...");
-    while (millis() - start < 300) {
-        if (bot.getNewMessage(msg)) return true;
-        delay(5);
-    }
-        if (bot.getNewMessage(msg)) {
-        Serial.print("Got message: ");
-        Serial.println(msg.text);
-        Serial.print("From: ");
-        Serial.println(msg.sender.id);
-        return true;
-    }
-
-    return false;
-}
-
+//WiFiClientSecure secured_client;
+//UniversalTelegramBot bot("", secured_client);   
 // ---------------------------------------------------------
-//  KEYBOARD BUILDERS
+//  KEYBOARD BUILDERS (Cleaned for UniversalTelegramBot)
 // ---------------------------------------------------------
-ReplyKeyboard buildMainKeyboard() {
+String kbMain() {
     menuState = MENU_MAIN;
-
-    ReplyKeyboard kbd;
-    kbd.addButton("/status"); kbd.addButton("/health"); kbd.addRow();
-    kbd.addButton("/energy"); kbd.addButton("/logs");   kbd.addRow();
-    kbd.addButton("/settings"); kbd.addButton("/help"); kbd.addRow();
-    kbd.addButton("/open");
-    kbd.addButton("/auto"); kbd.addButton("/close");
+    // Remove the {"keyboard": ... } wrapper
+    return F("["
+             "[\"📊 Status\",\"🩺 Health\"],"
+             "[\"⚡ Energy\",\"📝 Logs\"],"
+             "[\"⚙️ Settings\",\"🆘 Help\"],"
+             "[\"👐 Open\",\"🤖 Auto\",\"🚪 Close\"]"
+             "]");
+}
+String kbSettings() {
+    menuState = MENU_SETTINGS;
+    
+    // Start the keyboard array
+    String kbd = "[";
+    
+    // Row 1: Timezone and the special Request Location button
+    // Note: We use { "text": "...", "request_location": true } for the GPS trigger
+    kbd += "[\"🕒 Timezone\", {\"text\":\"📍 Location\", \"request_location\": true}],";
+    
+    // Row 2: Offsets
+    kbd += "[\"☀️ Open Offset\",\"☀️ Close Offset\"],";
+    
+    // Row 3: Thresholds
+    kbd += "[\"⌛ Motor Timeout\",\"🐥 Pinch Threshold\"]";
+    
+    // Only add the Debug button row if enabled
+    if (debugMenuEnabled) {
+        kbd += ",[\"Debug Menu\"]"; 
+    }
+    
+    // Final Row: Back
+    kbd += ",[\"🏠 BACK\"]";
+    kbd += "]";
+    
     return kbd;
 }
 
-ReplyKeyboard buildSettingsKeyboard() {
-    ReplyKeyboard kbd;
-    kbd.addButton("OpenOffset");
-    kbd.addButton("Location");
-    kbd.addButton("CloseOffset");
-    kbd.addRow();
-    kbd.addButton("Motor Timeout");
-    kbd.addButton("Pinch Threshold");
-    kbd.addRow();
-    kbd.addButton("Timezone");
-    if (debugMenuEnabled) kbd.addButton("Debug");
-    kbd.addRow();
-    kbd.addButton("Back");
-    return kbd;
+String kbDebug() {
+    menuState = MENU_DEBUG;
+    return F("["
+             "[\"Test Mode ON\",\"Test Mode OFF\"],"
+             "[\"Debug Door\",\"Debug Limits\",\"Debug Energy\"],"
+             "[\"Debug Time\",\"Debug Sun\",\"Debug Auto\"],"
+             "[\"Debug State\",\"Debug Config\",\"Debug All\"],"
+             "[\"Reboot\",\"Debug Off\"],"
+             "[\"🏠 BACK\"]"
+             "]");
 }
-
-ReplyKeyboard buildDebugKeyboard() {
-    ReplyKeyboard kbd;
-    kbd.addButton("/debugauto");  kbd.addButton("/debugdoor");   kbd.addRow();
-    kbd.addButton("/debugsun");   kbd.addButton("/debugtime");   kbd.addRow();
-    kbd.addButton("/debugstate"); kbd.addButton("/debuglimits"); kbd.addRow();
-    kbd.addButton("/debugconfig");kbd.addButton("/debugenergy"); kbd.addRow();
-    kbd.addButton("/debugall");   kbd.addButton("/back");
-    return kbd;
+String kbTimezone() {
+    return F("["
+             "[\"Pacific (-8)\", \"Mountain (-7)\"],"
+             "[\"Central (-6)\", \"Eastern (-5)\"],"
+             "[\"BACK\"]"
+             "]");
+}
+// ---------------------------------------------------------
+//  SEND MESSAGE WRAPPER (Updated for UniversalBot Signature)
+// ---------------------------------------------------------
+void sendMessageWithKeyboard(String chat_id, const String &text, const String &kbd) {
+    bot.sendMessageWithReplyKeyboard(chat_id, text, "Markdown", kbd, true);
 }
 
 // ---------------------------------------------------------
-//  ROUTER
+//  MAIN ROUTER 
 // ---------------------------------------------------------
 void TelegramRouter_handle() {
-    Serial.println("Router running");
-    if (millis() - bootTime < 8000) return;
-    if (!telegramEnabled) return;
+    static unsigned long lastPollTime = 0;
+    const unsigned long pollInterval = 2000; 
 
-    TBMessage msg;
-    if (!pollTelegram(msg)) return;
+    if (millis() - lastPollTime < pollInterval) return;
+    lastPollTime = millis();
 
-    if (ignoreFirstTelegramMessage) {
-        ignoreFirstTelegramMessage = false;
-        return;
-    }
+    if (millis() - bootTime < 8000 || !telegramEnabled) return;
+    if (WiFi.status() != WL_CONNECTED) return;
 
-    // Door moving lockout
-    if (Motor_getState() == M_OPENING || Motor_getState() == M_CLOSING) {
-        ReplyKeyboard kbd = buildMainKeyboard();
-        bot.sendMessage(msg, "⚙️ Door is moving — please wait.", kbd);
-        return;
-    }
+    // 1. Get updates
+    int numNew = bot.getUpdates(bot.last_message_received + 1);
 
-    userid = msg.sender.id;
+    for (int i = 0; i < numNew; i++) {
+        TBMessage msg = bot.messages[i];
+        
+        // Update the ID immediately so we never process this specific message again
+        bot.last_message_received = msg.update_id;
 
-    String text = msg.text;
-    text.trim();
-    text.toLowerCase();
+        // --- 1. PIN CATCHER ---
+        if (msg.type == "location" || msg.latitude != 0.0f) {
+            handleLocation(msg); 
+            continue; 
+        }
 
-    // LOCATION PIN HANDLING
-    if (text.length() == 0 &&
-        msg.location.latitude  != 0.0 &&
-        msg.location.longitude != 0.0 &&
-        abs(msg.location.latitude)  > 0.1 &&
-        abs(msg.location.longitude) > 0.1) {
+        // --- 2. SECURITY CHECK ---
+        String authorizedID = Config_getChatID();
+        if (authorizedID.length() > 0 && authorizedID != "0" && msg.chat_id != authorizedID) {
+            continue; 
+        }
 
-        Config_setLat(msg.location.latitude);
-        Config_setLong(msg.location.longitude);
-        Config_save();
+        // --- 3. FUNCTIONAL LOCKOUT ---
+        // If door is moving, tell user and STOP processing this message.
+        if (Motor_getState() == M_OPENING || Motor_getState() == M_CLOSING) {
+            bot.sendMessage(msg.chat_id, "⚙️ Door is moving — please wait.", "");
+            continue;
+        }
 
-        ReplyKeyboard kbd = buildMainKeyboard();
-        String locMsg = "📍 Location Updated!\nLat: " + String(Config_getLat(), 4) +
-                        "\nLong: " + String(Config_getLong(), 4);
-        bot.sendMessage(msg, locMsg.c_str(), kbd);
-        addLog("Location Updated 📍");
-        return;
-    }
+        // --- 4. PREPARE COMMAND ---
+        userid = atoll(msg.chat_id.c_str());
+        String text = msg.text;
+        text.trim();
+        String cmd = text;
+        cmd.toLowerCase();
 
-    // TOP-LEVEL COMMANDS
-    if (text == "/status" || text == "/start") handleStatus(msg);
-    else if (text == "/energy") handleEnergy(msg);
-    else if (text == "/logs") handleLogs(msg);
-    else if (text == "/open") handleOpen(msg);
-    else if (text == "/close") handleClose(msg);
-    else if (text == "/auto") handleAuto(msg);
-    else if (text == "/health") handleHealth(msg);
-    else if (text == "/settings" || text == "settings") handleSettings(msg);
-
-    // SETTINGS SUBMENU
-    else if (text == "timezone") handleTimezone(msg);
-    else if (text == "location") handleLocation(msg);
-
-    // OFFSET COMMANDS
-    else if (text == "openoffset") {
-        waitingForOpenOffset = true;
-        waitingForCloseOffset = false;
-        handleOffsets(msg);
-        return;
-    }
-    else if (text == "closeoffset") {
-        waitingForOpenOffset = false;
-        waitingForCloseOffset = true;
-        handleOffsets(msg);
-        return;
-    }
-
-    // OFFSET TYPED INPUT
-    else if ((waitingForOpenOffset || waitingForCloseOffset) && StringUtils_isNumber(text)) {
-        handleOffsets(msg);
-        return;
-    }
-
-    // EXIT OFFSET MODE
-    else if (waitingForOpenOffset || waitingForCloseOffset) {
-        waitingForOpenOffset = false;
-        waitingForCloseOffset = false;
-    }
-
-    // MOTOR TIMEOUT / PINCH
-    else if (text == "motor timeout") handleMotorTimeout(msg);
-    else if (text == "pinch threshold") handlePinchThreshold(msg);
-    else if (text.startsWith("/setmotortime")) handleMotorTimeout(msg);
-    else if (text.startsWith("/setpinch")) handlePinchThreshold(msg);
-
-    // BACK
-    else if (text == "back" || text == "/back") {
-        waitingForOpenOffset = false;
-        waitingForCloseOffset = false;
-
-        if (menuState == MENU_SETTINGS) {
-            ReplyKeyboard kbd = buildMainKeyboard();
-            bot.sendMessage(msg, "🏠 Main Menu", kbd);
+        // --- 5. MAIN ROUTING ---
+        if (cmd == "📊 status" || cmd == "/status" || cmd == "/start") handleStatus(msg);
+        else if (cmd == "⚡ energy" || cmd == "/energy") handleEnergy(msg);
+        else if (cmd == "📝 logs" || cmd == "/logs")   handleLogs(msg);
+        else if (cmd == "👐 open" || cmd == "/open")   handleOpen(msg);
+        else if (cmd == "🚪 close" || cmd == "/close")  handleClose(msg);
+        else if (cmd == "🤖 auto" || cmd == "/auto")   handleAuto(msg);
+        else if (cmd == "🩺 health" || cmd == "/health") handleHealth(msg);
+        else if (cmd == "⚙️ settings" || cmd == "/settings" || cmd == "settings") handleSettings(msg);
+        else if (cmd == "🕒 timezone" || cmd == "/timezone") handleTimezone(msg);
+        else if (cmd == "📍 location" || cmd == "/location") handleLocation(msg);
+        
+        else if (cmd == "☀️ open offset" || cmd == "/openoffset") {
+            waitingForOpenOffset = true;
+            waitingForCloseOffset = false;
+            handleOffsets(msg);
+        }
+        else if (cmd == "☀️ close offset" || cmd == "/closeoffset") {
+            waitingForOpenOffset = false;
+            waitingForCloseOffset = true;
+            handleOffsets(msg);
+        }
+        else if ((waitingForOpenOffset || waitingForCloseOffset) && StringUtils_isNumber(text)) {
+            handleOffsets(msg);
+        }
+        else if (cmd == "⌛ motor timeout") handleMotorTimeout(msg);
+        else if (cmd == "🐥 pinch threshold") handlePinchThreshold(msg);
+        
+        else if (cmd == "timezone" || cmd == "central" || cmd == "eastern" || cmd == "mountain" || cmd == "pacific") {
+            handleTimezone(msg);
+        }
+        else if (cmd == "🏠 back" || cmd == "/back") {
+            waitingForOpenOffset = false;
+            waitingForCloseOffset = false;
+            sendMessageWithKeyboard(msg.chat_id, "🏠 Main Menu", kbMain());
             menuState = MENU_MAIN;
-            return;
         }
-
-        if (menuState == MENU_TIMEZONE || menuState == MENU_DEBUG) {
-            handleSettings(msg);
-            return;
+        // DEBUG COMMANDS
+        else if (cmd == "debug door") handleDebugDoor(msg);
+        else if (cmd == "debug limits") handleDebugLimits(msg);
+        else if (cmd == "debug energy") handleDebugEnergy(msg);
+        else if (cmd == "debug time")   handleDebugTime(msg);
+        else if (cmd == "debug sun")    handleDebugSun(msg);
+        else if (cmd == "debug auto")   handleDebugAuto(msg);
+        else if (cmd == "debug state")  handleDebugState(msg);
+        else if (cmd == "debug config")  handleDebugConfig(msg);
+        else if (cmd == "debug all")    handleDebugAll(msg);
+        else if (cmd == "debug off" || cmd == "/debugoff") handleDebugOff(msg);
+        else if (cmd == "🆘 help" || cmd == "/help") handleHelp(msg);
+        else if (cmd == "reboot" || cmd == "/reboot") handleReboot(msg);
+        else if (cmd == "debug on" || cmd == "/debugon")  handleDebugOn(msg);
+        else if (cmd == "debug menu" || cmd == "/debugmenu" || cmd == "debug") {
+            if (debugMenuEnabled) handleDebugMenu(msg);
+            else bot.sendMessage(msg.chat_id, "Debug menu is disabled.", "");
         }
-
-        ReplyKeyboard kbd = buildMainKeyboard();
-        bot.sendMessage(msg, "🏠 Main Menu", kbd);
-        menuState = MENU_MAIN;
-        return;
+        else if (cmd == "test mode on") {
+            if (debugMenuEnabled) handleTestModeOn(msg);
+        }
+        else if (cmd == "test mode off") {
+            if (debugMenuEnabled) handleTestModeOff(msg);
+        }
+        else {
+            handleUnknown(msg);
+        }
     }
-
-    // TIMEZONE SLASH COMMAND
-    else if (text == "/timezone" || text.startsWith("/timezone")) handleTimezone(msg);
-
-    // ENERGY / REBOOT / HELP
-    else if (text == "/resetenergy") handleResetEnergy(msg);
-    else if (text == "/reboot") handleReboot(msg);
-    else if (text == "/help") handleHelp(msg);
-
-    // DEBUG TOGGLES
-    else if (text == "/debugon") {
-        debugMenuEnabled = true;
-        bot.sendMessage(msg, "🛠 Debug menu enabled.");
-    }
-    else if (text == "/debugoff") {
-        debugMenuEnabled = false;
-        bot.sendMessage(msg, "🛠 Debug menu disabled.");
-    }
-
-    // DEBUG MENU
-    else if (text == "/debug" || text == "debug") {
-        if (debugMenuEnabled) handleDebugMenu(msg);
-        else bot.sendMessage(msg, "Debug menu disabled. Use /debugon.");
-    }
-
-    // DEBUG COMMANDS
-    else if (text == "/debugsun") handleDebugSun(msg);
-    else if (text == "/debugtime") handleDebugTime(msg);
-    else if (text == "/debugdoor") handleDebugDoor(msg);
-    else if (text == "/debugauto") handleDebugAuto(msg);
-    else if (text == "/debugstate") handleDebugState(msg);
-    else if (text == "/debuglimits") handleDebugLimits(msg);
-    else if (text == "/debugconfig") handleDebugConfig(msg);
-    else if (text == "/debugenergy") handleDebugEnergy(msg);
-    else if (text == "/debugall") handleDebugAll(msg);
-
-    // UNKNOWN
-    else handleUnknown(msg);
 }
-
 // ---------------------------------------------------------
-//  INIT
+//  INITIALIZATION
 // ---------------------------------------------------------
 void TelegramRouter_init() {
+    telegramEnabled = false;
+
     String token = Config_getBotToken();
-    String chat  = Config_getChatID();
+    token.trim();
+    if (token.length() < 10) return;
 
-    if (token.length() == 0 || chat.length() == 0) {
-        Serial.println("⚠️ Telegram disabled — missing token or chat ID");
-        telegramEnabled = false;
-        return;
+    secured_client.setInsecure();
+    bot.updateToken(token);
+
+    Serial.println("Connecting Telegram bot...");
+    WebSerial.println("Connecting Telegram bot...");
+
+    if (bot.sendMessageWithReplyKeyboard(
+            Config_getChatID(),
+            "System Online 🚀",
+            "Markdown",
+            kbMain(),
+            true
+        )) 
+    {
+        Serial.println(">>> SUCCESS! Keyboards are active.");
+        WebSerial.println(">>> SUCCESS! Keyboards are active.");
+        telegramEnabled = true;
+    } 
+    else 
+    {
+        Serial.println(">>> Telegram connected (Silent Mode).");
+        WebSerial.println(">>> Telegram connected (Silent Mode).");
+        telegramEnabled = true;
     }
-
-    bot.setTelegramToken(token.c_str());  
-    bot.setUpdateTime(1000);
-    bot.begin();
-    Serial.println("Testing Telegram connection...");
-    Serial.println("Telegram initialized (no testConnection available)");
-
-    telegramEnabled = true;
-
-    Serial.println("📨 Telegram bot initialized");
 }

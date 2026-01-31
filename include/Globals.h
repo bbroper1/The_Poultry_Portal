@@ -1,6 +1,8 @@
 #pragma once
 #include <Arduino.h>
 #include <sunset.h>
+#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>
 #include "TimeUtils.h"
 
 // -------------------------------
@@ -25,7 +27,6 @@ extern float CRITICAL_VOLTAGE;
 // -------------------------------
 extern bool telegramEnabled;
 extern int64_t userid;
-extern bool ignoreFirstTelegramMessage;
 
 // -------------------------------
 //  MENU / MODE STATE
@@ -65,3 +66,7 @@ extern unsigned long bootTime;
 extern bool inaOK;
 extern float motorCurrent;
 extern bool factoryResetRequested;
+
+extern WiFiClientSecure secured_client;
+extern UniversalTelegramBot bot;
+extern bool testModeActive;

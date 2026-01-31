@@ -1,5 +1,16 @@
 #pragma once
-#include <AsyncTelegram2.h>
+#include <UniversalTelegramBot.h>
+
+typedef telegramMessage TBMessage;
+
+// Global bot instance (defined in Globals.cpp)
+extern UniversalTelegramBot bot;
+extern String kbTimezone();
+
+// Keyboard builders (defined in TelegramRouter.cpp)
+String kbMain();
+String kbSettings();
+String kbDebug();
 
 // ----- Core Handlers -----
 void handleStatus(TBMessage &msg);
@@ -37,3 +48,5 @@ void handleDebugAll(TBMessage &msg);
 void handleDebugMenu(TBMessage &msg);
 void handleDebugOn(TBMessage &msg);
 void handleDebugOff(TBMessage &msg);
+void handleTestModeOn(TBMessage &msg);
+void handleTestModeOff(TBMessage &msg);

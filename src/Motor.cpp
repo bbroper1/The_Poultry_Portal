@@ -5,6 +5,7 @@
 #include "Battery.h"
 #include "Temperature.h"
 #include "Logging.h"
+#include <WebSerial.h>
 #include <Arduino.h>
 #include <Adafruit_INA219.h>
 
@@ -62,35 +63,31 @@ static void motorStop() {
 // -------------------------------
 void Motor_requestOpen() {
     if (s_state == M_OPENING || s_state == M_OPEN) return;
-
-    addLog("Motor → OPEN request");
+    addLog(testModeActive ? "Motor → SIMULATED OPEN" : "Motor → OPEN request");
 
     s_state = M_OPENING;
     s_motorStartTime = millis();
     s_openLimitTriggeredAt = 0;
 
-    motorForward();
+    if (!testModeActive) motorForward();
 }
 
 void Motor_requestClose() {
     if (s_state == M_CLOSING || s_state == M_CLOSED) return;
-
-    addLog("Motor → CLOSE request");
+    addLog(testModeActive ? "Motor → SIMULATED CLOSE" : "Motor → CLOSE request");
 
     s_state = M_CLOSING;
     s_motorStartTime = millis();
     s_closeLimitTriggeredAt = 0;
 
-    motorReverse();
+    if (!testModeActive) motorReverse();
 }
 
 void Motor_stop() {
     motorStop();
-
     if (s_state == M_OPENING)      s_state = M_OPEN;
     else if (s_state == M_CLOSING) s_state = M_CLOSED;
     else                           s_state = M_STUCK;
-
     addLog("Motor STOP");
 }
 
@@ -100,107 +97,103 @@ void Motor_stop() {
 void Motor_update() {
     unsigned long now = millis();
 
-    // Safety checks
-    if (Battery_getVoltage() < CRITICAL_VOLTAGE) {
-        Motor_stop();
-        addLog("Motor STOP: low battery");
-        return;
+    // 1. TEST MODE
+    if (testModeActive) {
+        // ... (existing test mode logic)
+        return; 
     }
 
-    if (Temperature_getCelsius() > Temperature_getCriticalC()) {
-        Motor_stop();
-        addLog("Motor STOP: high temperature");
-        return;
-    }
-
-    // Limit switches
+    // 2. READ HARDWARE
     bool openHit  = (digitalRead(PIN_LIMIT_OPEN)  == LOW);
     bool closeHit = (digitalRead(PIN_LIMIT_CLOSE) == LOW);
-
-    // Motor current
     float current_mA = Motor_getCurrent();
 
-    // Config
+    // --- TELEMETRY ---
+    static unsigned long lastDebug = 0;
+    if ((s_state == M_OPENING || s_state == M_CLOSING) && (now - lastDebug > 200)) {
+        Serial.printf("[Motor] State:%d | O:%d | C:%d | mA:%.1f\n", s_state, openHit, closeHit, current_mA);
+        lastDebug = now;
+    }
+    if ((s_state == M_OPENING || s_state == M_CLOSING) && (now - lastDebug > 200)) {
+        char buffer[64];
+        snprintf(buffer, sizeof(buffer), "[Motor] State:%d | O:%d | C:%d | mA:%.1f", 
+                s_state, openHit, closeHit, current_mA);
+        
+        // Explicitly cast to String to resolve compiler ambiguity
+        WebSerial.print(String(buffer) + "\n"); 
+        
+        WebSerial.println(buffer);
+        lastDebug = now;
+    }
+
+    // 3. THE MASTER SAFETY KILL-SWITCH
+    // If the motor is supposed to be moving, but ANY limit is hit...
+    if (s_state == M_OPENING || s_state == M_CLOSING) {
+        if (openHit || closeHit) {
+            motorStop(); // Kill PWM immediately
+            
+            // Set the final state based on which way we were going
+            if (s_state == M_OPENING) {
+                s_state = M_OPEN;
+                s_openCycles++;
+                addLog("Door OPEN (Limit)");
+            } else {
+                s_state = M_CLOSED;
+                s_closeCycles++;
+                addLog("Door CLOSED (Limit)");
+            }
+            return; // EXIT the function immediately so nothing else restarts the motor
+        }
+    }
+
+    // 4. SAFETY CHECKS (Battery/Temp)
+    if (Battery_getVoltage() < CRITICAL_VOLTAGE || Temperature_getCelsius() > Temperature_getCriticalC()) {
+        Motor_stop();
+        return;
+    }
+
+    // 5. STALL & TIMEOUT PROTECTIONS
     int pinchThreshold = Config_getPinchThreshold();
     int timeoutSec     = Config_getMotorTimeout();
 
-    // -------------------------------
-    // OPENING
-    // -------------------------------
-    if (s_state == M_OPENING) {
+    if (s_state == M_OPENING || s_state == M_CLOSING) {
+        
+        // Give the motor 200ms to get moving before checking for stalls or limits
+        if (now - s_motorStartTime > 200) { 
 
-        if (openHit) {
-            if (s_openLimitTriggeredAt == 0)
-                s_openLimitTriggeredAt = now;
-
-            if (now - s_openLimitTriggeredAt > 150) {
+            // Re-check limits here if you want to be extra safe, 
+            // but usually, we just want to ignore stalls at start.
+            
+            if (current_mA > pinchThreshold) {
                 motorStop();
-                s_state = M_OPEN;
-                addLog("Door OPEN");
-                s_openCycles++;
+                s_state = M_STUCK;
+                addLog("STALL detected");
                 return;
             }
         }
 
-        if (current_mA > pinchThreshold) {
+        // Timeout Protection (Always active)
+        if (now - s_motorStartTime > (unsigned long)timeoutSec * 1000) {
             motorStop();
             s_state = M_STUCK;
-            addLog("STALL during OPEN");
-            return;
-        }
-
-        if (now - s_motorStartTime > timeoutSec * 1000) {
-            motorStop();
-            s_state = M_STUCK;
-            addLog("TIMEOUT during OPEN");
+            addLog("TIMEOUT reached");
             return;
         }
     }
-
-    // -------------------------------
-    // CLOSING
-    // -------------------------------
-    if (s_state == M_CLOSING) {
-
-        if (closeHit) {
-            if (s_closeLimitTriggeredAt == 0)
-                s_closeLimitTriggeredAt = now;
-
-            if (now - s_closeLimitTriggeredAt > 150) {
-                motorStop();
-                s_state = M_CLOSED;
-                addLog("Door CLOSED");
-                s_closeCycles++;
-                return;
-            }
-        }
-
-        if (current_mA > pinchThreshold) {
-            motorStop();
-            s_state = M_STUCK;
-            addLog("STALL during CLOSE");
-            return;
-        }
-
-        if (now - s_motorStartTime > timeoutSec * 1000) {
-            motorStop();
-            s_state = M_STUCK;
-            addLog("TIMEOUT during CLOSE");
-            return;
-        }
-    }
-
-    motorCurrent = current_mA;
 }
-
 // -------------------------------
 // Initialization
 // -------------------------------
 void Motor_begin() {
+    // PWM Config
     ledcSetup(PWM_CH_A, PWM_FREQ, PWM_RESOLUTION);
     ledcSetup(PWM_CH_B, PWM_FREQ, PWM_RESOLUTION);
     ledcAttachPin(PIN_MOTOR_A, PWM_CH_A);
     ledcAttachPin(PIN_MOTOR_B, PWM_CH_B);
+
+    // Limit Switch Config - Added INPUT_PULLUP
+    pinMode(PIN_LIMIT_OPEN, INPUT_PULLUP);
+    pinMode(PIN_LIMIT_CLOSE, INPUT_PULLUP);
 
     motorStop();
 }

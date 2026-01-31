@@ -3,13 +3,15 @@
 #include "Globals.h"
 #include <WiFiManager.h>
 #include <Arduino.h>
+#include <WebSerial.h>
 
 bool WiFiSetup_begin() {
     WiFiManager wm;
 
     // Handle factory reset
     if (factoryResetRequested) { 
-        Serial.println("🧹 WiFiManager: resetting saved settings"); 
+        Serial.println("🧹 WiFiManager: resetting saved settings");
+        WebSerial.println("🧹 WiFiManager: resetting saved settings"); 
         wm.resetSettings();
     }
 
@@ -37,10 +39,12 @@ bool WiFiSetup_begin() {
     // Start WiFiManager
     if (!wm.autoConnect("PoultryPortal_AP")) {
         Serial.println("❌ WiFi connection failed");
+        WebSerial.println("❌ WiFi connection failed");
         return false;
     }
 
     Serial.println("✅ WiFi connected");
+    WebSerial.println("✅ WiFi connected");
 
     // Save Telegram settings
     String newBotToken = custom_botToken.getValue();

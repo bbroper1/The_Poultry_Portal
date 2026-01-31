@@ -2,9 +2,8 @@
 #include "Motor.h"
 #include "Config.h"
 #include "Logging.h"
-#include <AsyncTelegram2.h>
+#include "Globals.h"   // <-- needed for bot + userid
 
-extern AsyncTelegram2 bot;
 extern int64_t userid;
 
 // ESP32 internal temperature sensor
@@ -64,9 +63,11 @@ void Temperature_update() {
             addLog("OVERHEAT! 🔥");
 
             if (Config_getBotToken().length() > 0) {
-                bot.sendTo(userid,
-                    ("🔥 CRITICAL TEMP: " + String(s_tempC, 1) +
-                     "°C - Motor stopped!").c_str());
+                bot.sendMessage(
+                    String(userid),
+                    "🔥 *CRITICAL TEMP:* " + String(s_tempC, 1) + "°C\nMotor stopped!",
+                    "Markdown"
+                );
             }
         }
         return;
@@ -77,8 +78,11 @@ void Temperature_update() {
         addLog("High Temp ⚠️");
 
         if (Config_getBotToken().length() > 0) {
-            bot.sendTo(userid,
-                ("⚠️ High temperature: " + String(s_tempC, 1) + "°C").c_str());
+            bot.sendMessage(
+                String(userid),
+                "⚠️ *High temperature:* " + String(s_tempC, 1) + "°C",
+                "Markdown"
+            );
         }
 
         s_warningShown = true;

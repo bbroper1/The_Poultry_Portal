@@ -1,11 +1,16 @@
 #pragma once
-#include <AsyncTelegram2.h>
+#include <Arduino.h>
+#include <UniversalTelegramBot.h>
 #include "Globals.h"
 
+// Forward declarations for keyboard builders
+String kbMain();
+String kbSettings();
+String kbDebug();
+
+// Router entry points
 void TelegramRouter_init();
 void TelegramRouter_handle();
 
-ReplyKeyboard buildMainKeyboard();
-ReplyKeyboard buildSettingsKeyboard();
-ReplyKeyboard buildDebugKeyboard();
-
+// Global bot instance (defined in Globals.cpp)
+extern UniversalTelegramBot bot;
