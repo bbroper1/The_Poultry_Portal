@@ -175,31 +175,27 @@ void Energy_update() {
     if (!inaOK) return;
 
     unsigned long now = millis();
-
-    // Protect against rollover or negative dt
-    if (now < s_lastEnergyCalc) {
-        s_lastEnergyCalc = now;
-        return;
-    }
-
     unsigned long dt = now - s_lastEnergyCalc;
 
-    if (dt >= 1000) {
+    // Only run energy calculations every 2 seconds to save CPU for SSL
+    if (dt >= 2000) {
         float mA = Motor_getCurrent();
-
-        // Convert dt to hours
         float dtHours = dt / 3600000.0f;
-
-        // Accumulate mAh
         s_todayUsedmAh += mA * dtHours;
-
+        
         s_lastEnergyCalc = now;
+
+        // Only check for daily rollover when we actually update energy
+        Energy_checkDailyResetInternal();
+        
+        // Save to flash once every 10 minutes, not every loop
+        static unsigned long lastSave = 0;
+        if (now - lastSave > 600000) { 
+            Energy_saveToPrefs();
+            lastSave = now;
+        }
     }
-
-    // daily rollover
-    Energy_checkDailyResetInternal();
 }
-
 // -------------------------------
 // Manual control APIs
 // -------------------------------

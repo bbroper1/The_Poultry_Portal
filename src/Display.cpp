@@ -8,6 +8,7 @@
 #include "Config.h"
 
 #include <Adafruit_GFX.h>
+#include <WebSerial.h>
 #include <Adafruit_SSD1306.h>
 
 // ---------------------------------------------------------
@@ -32,6 +33,7 @@ static int currentScreen = 0;
 void Display_init() {
     if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
         Serial.println("⚠️ Display init failed!");
+        WebSerial.println("⚠️ Display init failed!");
         displayOk = false;
         return;
     }

@@ -1,11 +1,8 @@
 #include "Globals.h"
 
-// ---------------------------------------------------------
-//  GLOBAL STATE DEFINITIONS
-// ---------------------------------------------------------
-
 unsigned long bootTime = 0;
-bool ignoreFirstTelegramMessage = true;
+
+extern UniversalTelegramBot bot;
 
 bool autoOpenTriggeredToday = false;
 bool autoCloseTriggeredToday = false;
@@ -41,3 +38,6 @@ bool inaOK = false;
 float motorCurrent = 0.0f;
 bool factoryResetRequested = false;
 
+WiFiClientSecure secured_client;
+UniversalTelegramBot bot("", secured_client);
+bool testModeActive = false;

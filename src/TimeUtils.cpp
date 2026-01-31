@@ -4,10 +4,12 @@
 
 #include <Arduino.h>
 #include <time.h>
+#include <WebSerial.h>
 
 void TimeUtils_sync() {
     String tz = Config_getTimezone();
     Serial.println("Applying timezone: " + tz);
+    WebSerial.println("Applying timezone: " + tz);
 
     configTzTime(tz.c_str(), "pool.ntp.org", "time.nist.gov");
 
@@ -22,9 +24,11 @@ void TimeUtils_sync() {
 
     if (now >= 100000) {
         Serial.println("⏱️ Time synchronized");
+        WebSerial.println("⏱️ Time synchronized");
         addLog("Time synchronized ⏱️");
     } else {
         Serial.println("⚠️ Time sync failed or slow");
+        WebSerial.println("⚠️ Time sync failed or slow");
         addLog("Time sync failed ⚠️");
     }
 }
