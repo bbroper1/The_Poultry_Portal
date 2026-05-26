@@ -5,15 +5,15 @@
 #include "../../motor/MotorTask.h"
 #include "../../motor/MotorModule.h"
 
-namespace MotorHandler {
-
-bool waitingForTimeout = false;
-bool waitingForPinch   = false;
+// State for numeric input
+static bool waitingForTimeout = false;
+static bool waitingForPinch   = false;
 
 // ---------------------------------------------------------
-// Helpers
+// Formatting Helpers
 // ---------------------------------------------------------
-static bool isNumber(const String& s) {
+
+bool MotorHandler::isNumber(const String& s) {
     if (s.length() == 0) return false;
     for (size_t i = 0; i < s.length(); i++) {
         if (!isDigit(s[i]) && s[i] != '-' && s[i] != '+')
@@ -22,79 +22,85 @@ static bool isNumber(const String& s) {
     return true;
 }
 
-static void sendMotorStatus(uint64_t chatId, TelegramClient* client) {
-    String out;
-    out.reserve(300);
+String MotorHandler::blockHeader(const String& emoji, const String& title) {
+    return emoji + " *" + title + "*\n━━━━━━━━━━━━━━━\n";
+}
 
-    out += "🔧 *MOTOR STATUS*\n";
-    out += "━━━━━━━━━━━━━━━\n";
+String MotorHandler::kv(const String& label, const String& value) {
+    return "• " + label + ": " + value + "\n";
+}
 
-    out += "🚪 Door State: ";
-    switch (Motor_getState()) {
-        case M_OPEN:    out += "OPEN"; break;
-        case M_CLOSED:  out += "CLOSED"; break;
-        case M_OPENING: out += "OPENING"; break;
-        case M_CLOSING: out += "CLOSING"; break;
-        case M_STUCK:   out += "STUCK"; break;
-        default:        out += "UNKNOWN"; break;
+String MotorHandler::formatDoorState(int state) {
+    switch (state) {
+        case M_OPEN:    return "OPEN";
+        case M_CLOSED:  return "CLOSED";
+        case M_OPENING: return "OPENING";
+        case M_CLOSING: return "CLOSING";
+        case M_STUCK:   return "STUCK";
+        default:        return "UNKNOWN";
     }
-    out += "\n";
+}
 
-    out += "❤️ Health: " + Motor_getHealthString() + "\n";
-    out += "🔌 Current: " + String(Motor_getCurrentmA()) + " mA\n";
-    out += "⌛ Timeout: " + String(Config_getMotorTimeout()) + " sec\n";
-    out += "🐥 Pinch:   " + String(Config_getPinchThreshold()) + " mA\n";
-    out += "🌀 Open Cycles:  " + String(Motor_getOpenCycles()) + "\n";
-    out += "🌀 Close Cycles: " + String(Motor_getCloseCycles()) + "\n";
+// ---------------------------------------------------------
+// Motor Status Message
+// ---------------------------------------------------------
+
+void MotorHandler::sendMotorStatus(uint64_t chatId, TelegramClient* client) {
+    String out;
+    out.reserve(400);
+
+    out += blockHeader("🔧", "MOTOR STATUS");
+    out += kv("Door State", formatDoorState(Motor_getState()));
+    out += kv("Health", Motor_getHealthString());
+    out += kv("Current", String(Motor_getCurrentmA()) + " mA");
+    out += kv("Timeout", String(Config_getMotorTimeout()) + " sec");
+    out += kv("Pinch Threshold", String(Config_getPinchThreshold()) + " mA");
+    out += kv("Open Cycles", String(Motor_getOpenCycles()));
+    out += kv("Close Cycles", String(Motor_getCloseCycles()));
 
     client->sendMessageWithKeyboard(chatId, out, kbMotorMenu());
 }
 
 // ---------------------------------------------------------
-// Handler
+// Main Handler
 // ---------------------------------------------------------
-void handle(const TelegramEvent& evt, TelegramClient* client) {
 
-    // ---------------------------------------------------------
+void MotorHandler::handle(const TelegramEvent& evt, TelegramClient* client) {
+
     // BACK during motor input
-    // ---------------------------------------------------------
     if (evt.type == EVT_BACK &&
         (waitingForTimeout || waitingForPinch)) {
 
         waitingForTimeout = false;
         waitingForPinch   = false;
 
-        client->sendMessageWithKeyboard(
-            evt.chatId,
-            "🔧 *MOTOR MENU*\n━━━━━━━━━━━━━━━",
-            kbMotorMenu()
-        );
+        String out;
+        out.reserve(120);
+        out += blockHeader("🔧", "MOTOR MENU");
+        out += "View status, run tests, or adjust safety settings.";
+
+        client->sendMessageWithKeyboard(evt.chatId, out, kbMotorMenu());
         return;
     }
 
-    // ---------------------------------------------------------
     // Show Motor Menu
-    // ---------------------------------------------------------
     if (evt.type == EVT_SHOW_MOTOR_MENU) {
-        client->sendMessageWithKeyboard(
-            evt.chatId,
-            "🔧 *MOTOR MENU*\n━━━━━━━━━━━━━━━\nView status, run tests, or adjust safety settings.",
-            kbMotorMenu()
-        );
+        String out;
+        out.reserve(160);
+        out += blockHeader("🔧", "MOTOR MENU");
+        out += "View status, run tests, or adjust safety settings.";
+
+        client->sendMessageWithKeyboard(evt.chatId, out, kbMotorMenu());
         return;
     }
 
-    // ---------------------------------------------------------
     // Motor Status
-    // ---------------------------------------------------------
     if (evt.type == EVT_MOTOR_STATUS) {
         sendMotorStatus(evt.chatId, client);
         return;
     }
 
-    // ---------------------------------------------------------
-    // Motor Test (simple open/close pulse)
-    // ---------------------------------------------------------
+    // Motor Test
     if (evt.type == EVT_MOTOR_TEST) {
         client->sendMessageWithKeyboard(
             evt.chatId,
@@ -103,19 +109,17 @@ void handle(const TelegramEvent& evt, TelegramClient* client) {
         );
 
         Motor_requestOpen();
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(2000));
         Motor_stop();
-        vTaskDelay(pdMS_TO_TICKS(500));
-        Motor_requestClose();
         vTaskDelay(pdMS_TO_TICKS(1000));
+        Motor_requestClose();
+        vTaskDelay(pdMS_TO_TICKS(2000));
         Motor_stop();
 
         return;
     }
 
-    // ---------------------------------------------------------
     // Stop Motor
-    // ---------------------------------------------------------
     if (evt.type == EVT_MOTOR_STOP) {
         Motor_stop();
         client->sendMessageWithKeyboard(
@@ -126,9 +130,7 @@ void handle(const TelegramEvent& evt, TelegramClient* client) {
         return;
     }
 
-    // ---------------------------------------------------------
     // Reset Health
-    // ---------------------------------------------------------
     if (evt.type == EVT_MOTOR_RESET_HEALTH) {
         Motor_setHealth(MOTOR_HEALTH_OK);
         client->sendMessageWithKeyboard(
@@ -139,9 +141,7 @@ void handle(const TelegramEvent& evt, TelegramClient* client) {
         return;
     }
 
-    // ---------------------------------------------------------
     // Force Stuck
-    // ---------------------------------------------------------
     if (evt.type == EVT_MOTOR_FORCE_STUCK) {
         Motor_forceStuck();
         Motor_setHealth(MOTOR_HEALTH_STALLED);
@@ -153,40 +153,36 @@ void handle(const TelegramEvent& evt, TelegramClient* client) {
         return;
     }
 
-    // ---------------------------------------------------------
     // Start Motor Timeout entry
-    // ---------------------------------------------------------
     if (evt.type == EVT_SET_MOTOR_TIMEOUT) {
         waitingForTimeout = true;
         waitingForPinch   = false;
 
-        client->sendMessageWithKeyboard(
-            evt.chatId,
-            "⌛ *Set Motor Timeout*\n\nEnter a number between 10 and 120 seconds.",
-            kbMotorMenu()
-        );
+        String out;
+        out.reserve(200);
+        out += blockHeader("⌛", "SET MOTOR TIMEOUT");
+        out += "Enter a number between 10 and 120 seconds.";
+
+        client->sendMessageWithKeyboard(evt.chatId, out, kbMotorMenu());
         return;
     }
 
-    // ---------------------------------------------------------
     // Start Pinch Threshold entry
-    // ---------------------------------------------------------
     if (evt.type == EVT_SET_PINCH_THRESHOLD) {
         waitingForTimeout = false;
         waitingForPinch   = true;
 
-        client->sendMessageWithKeyboard(
-            evt.chatId,
-            "🐥 *Set Pinch Threshold*\n\nEnter a number between 50 and 500 mA.",
-            kbMotorMenu()
-        );
+        String out;
+        out.reserve(200);
+        out += blockHeader("🐥", "SET PINCH THRESHOLD");
+        out += "Enter a number between 50 and 500 mA.";
+
+        client->sendMessageWithKeyboard(evt.chatId, out, kbMotorMenu());
         return;
     }
 
-    // ---------------------------------------------------------
     // User typed a number (timeout or pinch)
-    // ---------------------------------------------------------
-    if ((evt.type == EVT_MOTOR_VALUE || evt.type == EVT_OFFSET_VALUE) &&
+    if (evt.type == EVT_MOTOR_VALUE &&
         (waitingForTimeout || waitingForPinch)) {
 
         String t = evt.text;
@@ -233,22 +229,20 @@ void handle(const TelegramEvent& evt, TelegramClient* client) {
         waitingForTimeout = false;
         waitingForPinch   = false;
 
-        String out = "✔ Motor settings updated.\n";
-        out += "⌛ Timeout: " + String(Config_getMotorTimeout()) + " sec\n";
-        out += "🐥 Pinch:   " + String(Config_getPinchThreshold()) + " mA";
+        String out;
+        out.reserve(200);
+        out += blockHeader("✔", "MOTOR SETTINGS UPDATED");
+        out += kv("Timeout", String(Config_getMotorTimeout()) + " sec");
+        out += kv("Pinch Threshold", String(Config_getPinchThreshold()) + " mA");
 
         client->sendMessageWithKeyboard(evt.chatId, out, kbMotorMenu());
         return;
     }
 
-    // ---------------------------------------------------------
     // Unknown motor command
-    // ---------------------------------------------------------
     client->sendMessageWithKeyboard(
         evt.chatId,
         "❓ Unknown motor command.",
         kbMotorMenu()
     );
 }
-
-} // namespace MotorHandler

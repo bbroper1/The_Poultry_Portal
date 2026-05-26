@@ -11,70 +11,85 @@
 #include "modules/scheduler/SunContext.h"
 #include "../../motor/MotorPins.h"
 #include "../../system/Logging.h"
+#include "modules/battery/BatteryModule.h"
 
 extern bool debugMenuEnabled;
 extern bool remoteOverride;
-extern SunSet Sun;  
-
-namespace DebugHandler {
+extern SunSet Sun;
 
 // ---------------------------------------------------------
-// Helpers
+// Formatting Helpers
 // ---------------------------------------------------------
-static float getMotorCurrent() {
-    return Motor_getCurrentmA();
+
+String DebugHandler::blockHeader(const String& emoji, const String& title) {
+    return emoji + " *" + title + "*\n━━━━━━━━━━━━━━━\n";
 }
 
-static void sendDebugMenu(uint64_t chatId, TelegramClient* client) {
-    client->sendMessageWithKeyboard(
-        chatId,
-        "🛠 *DEBUG MENU*\n━━━━━━━━━━━━━━\nChoose a debug function:",
-        kbDebug()
-    );
+String DebugHandler::kv(const String& label, const String& value) {
+    return "• " + label + ": " + value + "\n";
+}
+
+String DebugHandler::formatDoorState(int state) {
+    switch (state) {
+        case M_OPEN:    return "OPEN";
+        case M_CLOSED:  return "CLOSED";
+        case M_OPENING: return "OPENING";
+        case M_CLOSING: return "CLOSING";
+        case M_STUCK:   return "STUCK";
+        default:        return "UNKNOWN";
+    }
+}
+
+String DebugHandler::formatBool(bool v, const String& yes, const String& no) {
+    return v ? yes : no;
+}
+
+// ---------------------------------------------------------
+// Debug Menu
+// ---------------------------------------------------------
+
+void DebugHandler::sendDebugMenu(uint64_t chatId, TelegramClient* client) {
+    String out;
+    out.reserve(200);
+
+    out += blockHeader("🛠", "DEBUG MENU");
+    out += "Choose a debug function:";
+
+    client->sendMessageWithKeyboard(chatId, out, kbDebug());
 }
 
 // ---------------------------------------------------------
 // DEBUG DOOR
 // ---------------------------------------------------------
-static void debugDoor(uint64_t chatId, TelegramClient* client) {
+
+void DebugHandler::debugDoor(uint64_t chatId, TelegramClient* client) {
+    float current = Motor_getCurrentmA();
+    int pinch = Config_getPinchThreshold();
+
     String out;
-    out.reserve(400);
+    out.reserve(500);
 
-    float current = getMotorCurrent();
+    out += blockHeader("🛠", "DEBUG DOOR");
+    out += kv("State", formatDoorState(Motor_getState()));
+    out += kv("Motor Current", String(current, 1) + " mA");
+    out += kv("Stall Threshold", String(pinch) + " mA");
 
-    out += "🛠 *DEBUG DOOR*\n";
-    out += "━━━━━━━━━━━━━━\n";
+    float pct = (current / pinch) * 100.0f;
+    out += kv("Threshold Usage", String(pct, 1) + "%");
 
-    out += "🚪 State: ";
-    switch (Motor_getState()) {
-        case M_OPEN:    out += "OPEN"; break;
-        case M_CLOSED:  out += "CLOSED"; break;
-        case M_OPENING: out += "OPENING"; break;
-        case M_CLOSING: out += "CLOSING"; break;
-        case M_STUCK:   out += "STUCK"; break;
-    }
-    out += "\n\n";
+    String risk =
+        (pct < 50)  ? "Low" :
+        (pct < 90)  ? "Elevated" :
+        (pct < 100) ? "Near Stall" :
+                      "STALL 🚨";
 
-    out += "🔌 Motor Current:     " + String(current, 1) + " mA\n";
-    out += "⚠️ Stall Threshold:   " + String(Config_getPinchThreshold()) + " mA\n\n";
+    out += kv("Stall Risk", risk);
+    out += kv("Would Stall Now", formatBool(current > pinch, "YES 🚨", "No"));
 
-    out += "📉 *Stall Analysis*\n";
-
-    float pct = (current / Config_getPinchThreshold()) * 100.0;
-    out += "   • Threshold Usage: " + String(pct, 1) + "%\n";
-
-    if (pct < 50) out += "   • Status: Safe 🟢\n";
-    else if (pct < 90) out += "   • Status: Elevated ⚠️\n";
-    else if (pct < 100) out += "   • Status: Near Stall 🔶\n";
-    else out += "   • Status: STALL TRIGGER 🚨\n";
-
-    bool wouldStall = (current > Config_getPinchThreshold());
-    out += "   • Would Stall Now: " + String(wouldStall ? "YES 🚨" : "No") + "\n\n";
-
-    out += "🔘 Limit Open:        " + String(digitalRead(PIN_LIMIT_OPEN)) + "\n";
-    out += "🔘 Limit Close:       " + String(digitalRead(PIN_LIMIT_CLOSE)) + "\n";
-    out += "🔘 Switch Open:       " + String(digitalRead(PIN_SWITCH_OPEN)) + "\n";
-    out += "🔘 Switch Close:      " + String(digitalRead(PIN_SWITCH_CLOSE)) + "\n\n";
+    out += kv("Limit Open",  digitalRead(PIN_LIMIT_OPEN)  == LOW ? "HIT" : "not hit");
+    out += kv("Limit Close", digitalRead(PIN_LIMIT_CLOSE) == LOW ? "HIT" : "not hit");
+    out += kv("Switch Open",  String(digitalRead(PIN_SWITCH_OPEN)));
+    out += kv("Switch Close", String(digitalRead(PIN_SWITCH_CLOSE)));
 
     client->sendMessage(chatId, out);
 }
@@ -82,42 +97,40 @@ static void debugDoor(uint64_t chatId, TelegramClient* client) {
 // ---------------------------------------------------------
 // DEBUG TIME
 // ---------------------------------------------------------
-static void debugTime(uint64_t chatId, TelegramClient* client) {
+
+void DebugHandler::debugTime(uint64_t chatId, TelegramClient* client) {
     time_t now = time(nullptr);
     struct tm* local = localtime(&now);
     struct tm* utc   = gmtime(&now);
 
-    String out = "🛠 *DEBUG TIME*\n━━━━━━━━━━━━━━\n";
+    String out;
+    out.reserve(400);
+
+    out += blockHeader("🛠", "DEBUG TIME");
 
     if (!local) {
-        out += "RTC not valid yet\n";
+        out += "RTC not valid yet";
         client->sendMessage(chatId, out);
         return;
     }
 
-    out += "⏱ Epoch: " + String((uint32_t)now) + "\n";
+    out += kv("Epoch", String((uint32_t)now));
 
-    out += "🕒 Local: ";
-    out += String(local->tm_year + 1900) + "-";
-    out += String(local->tm_mon + 1) + "-";
-    out += String(local->tm_mday) + " ";
-    out += String(local->tm_hour) + ":";
-    out += String(local->tm_min) + ":";
-    out += String(local->tm_sec) + "\n";
+    char buf[32];
 
-    out += "🌍 UTC:   ";
-    out += String(utc->tm_year + 1900) + "-";
-    out += String(utc->tm_mon + 1) + "-";
-    out += String(utc->tm_mday) + " ";
-    out += String(utc->tm_hour) + ":";
-    out += String(utc->tm_min) + ":";
-    out += String(utc->tm_sec) + "\n\n";
+    snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d",
+             local->tm_year + 1900, local->tm_mon + 1, local->tm_mday,
+             local->tm_hour, local->tm_min, local->tm_sec);
+    out += kv("Local", String(buf));
 
-    int tzHours = TimeUtils::getUTCOffsetHours();
-    out += "⏳ TZ Offset: " + String(tzHours) + "h\n";
-    out += "🕰 DST Active: " + String(local->tm_isdst ? "yes" : "no") + "\n\n";
+    snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d",
+             utc->tm_year + 1900, utc->tm_mon + 1, utc->tm_mday,
+             utc->tm_hour, utc->tm_min, utc->tm_sec);
+    out += kv("UTC", String(buf));
 
-    out += "⏱ Uptime: " + TimeUtils::getUptime() + "\n";
+    out += kv("TZ Offset", String(TimeUtils::getUTCOffsetHours()) + "h");
+    out += kv("DST Active", formatBool(local->tm_isdst, "yes", "no"));
+    out += kv("Uptime", TimeUtils::getUptime());
 
     client->sendMessage(chatId, out);
 }
@@ -125,15 +138,15 @@ static void debugTime(uint64_t chatId, TelegramClient* client) {
 // ---------------------------------------------------------
 // DEBUG SUN
 // ---------------------------------------------------------
-static void debugSun(uint64_t chatId, TelegramClient* client) {
+
+void DebugHandler::debugSun(uint64_t chatId, TelegramClient* client) {
     if (!TimeUtils::timeIsValid()) {
-        client->sendMessage(chatId, "⛔ Time not synced yet. Waiting for NTP...");
+        client->sendMessage(chatId, "⛔ Time not synced yet. Waiting for NTP…");
         return;
     }
 
     time_t now = time(nullptr);
     struct tm* ptm = localtime(&now);
-
     if (!ptm) {
         client->sendMessage(chatId, "Time not valid yet");
         return;
@@ -148,32 +161,29 @@ static void debugSun(uint64_t chatId, TelegramClient* client) {
     sun.setPosition(Config_getLat(), Config_getLong(), tzHours);
     sun.setCurrentDate(year, month, day);
 
-    int sunriseLocal, sunsetLocal;
-    Scheduler_calcLocalSunTimes(sunriseLocal, sunsetLocal);
+    int sr, ss;
+    Scheduler_calcLocalSunTimes(sr, ss);
 
-    int srH = sunriseLocal / 60;
-    int srM = sunriseLocal % 60;
-    int ssH = sunsetLocal / 60;
-    int ssM = sunsetLocal % 60;
+    int srH = sr / 60, srM = sr % 60;
+    int ssH = ss / 60, ssM = ss % 60;
 
-    String out = "🛠 *DEBUG SUN*\n";
-    out += "━━━━━━━━━━━━━━\n";
-    out += "📍 Lat: " + String(Config_getLat(), 4) + "\n";
-    out += "📍 Lon: " + String(Config_getLong(), 4) + "\n";
-    out += "⏱ TZ Offset: " + String(tzHours) + "h\n";
-    out += "📅 Today: " + String(month) + "/" + String(day) + "\n";
+    String out;
+    out.reserve(500);
 
-    out += "🌅 Sunrise: "
-        + String(srH) + ":" + (srM < 10 ? "0" : "") + String(srM) + "\n";
+    out += blockHeader("🛠", "DEBUG SUN");
+    out += kv("Lat", String(Config_getLat(), 4));
+    out += kv("Lon", String(Config_getLong(), 4));
+    out += kv("TZ Offset", String(tzHours) + "h");
+    out += kv("Today", String(month) + "/" + String(day));
 
-    out += "🌇 Sunset:  "
-        + String(ssH) + ":" + (ssM < 10 ? "0" : "") + String(ssM) + "\n\n";
+    out += kv("Sunrise", String(srH) + ":" + (srM < 10 ? "0" : "") + String(srM));
+    out += kv("Sunset",  String(ssH) + ":" + (ssM < 10 ? "0" : "") + String(ssM));
 
-    out += "🔧 Offsets: open=" + String(Config_getOpenOffset())
-        + "  close=" + String(Config_getCloseOffset()) + "\n";
+    out += kv("Open Offset",  String(Config_getOpenOffset()) + " min");
+    out += kv("Close Offset", String(Config_getCloseOffset()) + " min");
 
-    out += "🧠 Smart Open:  " + Scheduler_getNextOpen() + "\n";
-    out += "🧠 Smart Close: " + Scheduler_getNextClose() + "\n";
+    out += kv("Smart Open",  Scheduler_getNextOpen());
+    out += kv("Smart Close", Scheduler_getNextClose());
 
     client->sendMessage(chatId, out);
 }
@@ -181,19 +191,14 @@ static void debugSun(uint64_t chatId, TelegramClient* client) {
 // ---------------------------------------------------------
 // DEBUG AUTO
 // ---------------------------------------------------------
-static void debugAuto(uint64_t chatId, TelegramClient* client) {
-    String logicState = "";
-    switch (Motor_getState()) {
-        case M_OPEN:    logicState = "OPEN"; break;
-        case M_CLOSED:  logicState = "CLOSED"; break;
-        case M_OPENING: logicState = "OPENING"; break;
-        case M_CLOSING: logicState = "CLOSING"; break;
-        case M_STUCK:   logicState = "STUCK"; break;
-    }
 
-    String out = "🤖 *AUTO DEBUG*\n";
-    out += "Logic State: " + logicState + "\n";
-    out += "remoteOverride: " + String(remoteOverride ? "true" : "false") + "\n";
+void DebugHandler::debugAuto(uint64_t chatId, TelegramClient* client) {
+    String out;
+    out.reserve(200);
+
+    out += blockHeader("🤖", "AUTO DEBUG");
+    out += kv("Logic State", formatDoorState(Motor_getState()));
+    out += kv("Override", formatBool(remoteOverride));
 
     client->sendMessageWithKeyboard(chatId, out, kbDebug());
 }
@@ -201,18 +206,14 @@ static void debugAuto(uint64_t chatId, TelegramClient* client) {
 // ---------------------------------------------------------
 // DEBUG STATE
 // ---------------------------------------------------------
-static void debugState(uint64_t chatId, TelegramClient* client) {
-    String out = "⚙️ *STATE DEBUG*\n";
 
-    switch (Motor_getState()) {
-        case M_OPEN:    out += "Door State: OPEN\n"; break;
-        case M_CLOSED:  out += "Door State: CLOSED\n"; break;
-        case M_OPENING: out += "Door State: OPENING\n"; break;
-        case M_CLOSING: out += "Door State: CLOSING\n"; break;
-        case M_STUCK:   out += "Door State: STUCK\n"; break;
-    }
+void DebugHandler::debugState(uint64_t chatId, TelegramClient* client) {
+    String out;
+    out.reserve(200);
 
-    out += "remoteOverride: " + String(remoteOverride ? "true" : "false") + "\n";
+    out += blockHeader("⚙️", "STATE DEBUG");
+    out += kv("Door State", formatDoorState(Motor_getState()));
+    out += kv("Override", formatBool(remoteOverride));
 
     client->sendMessageWithKeyboard(chatId, out, kbDebug());
 }
@@ -220,19 +221,19 @@ static void debugState(uint64_t chatId, TelegramClient* client) {
 // ---------------------------------------------------------
 // DEBUG LIMITS
 // ---------------------------------------------------------
-static void debugLimits(uint64_t chatId, TelegramClient* client) {
-    String out;
-    out.reserve(300);
 
+void DebugHandler::debugLimits(uint64_t chatId, TelegramClient* client) {
     bool openHit  = (digitalRead(PIN_LIMIT_OPEN)  == LOW);
     bool closeHit = (digitalRead(PIN_LIMIT_CLOSE) == LOW);
 
-    out += "🛠 *DEBUG LIMITS*\n";
-    out += "━━━━━━━━━━━━━━━\n";
-    out += "Limit Open (raw):  " + String(digitalRead(PIN_LIMIT_OPEN)) + "\n";
-    out += "Limit Close (raw): " + String(digitalRead(PIN_LIMIT_CLOSE)) + "\n";
-    out += "Open HIT:  "  + String(openHit  ? "YES" : "no") + "\n";
-    out += "Close HIT: "  + String(closeHit ? "YES" : "no") + "\n";
+    String out;
+    out.reserve(300);
+
+    out += blockHeader("🛠", "DEBUG LIMITS");
+    out += kv("Limit Open",  openHit  ? "HIT" : "not hit");
+    out += kv("Limit Close", closeHit ? "HIT" : "not hit");
+    out += kv("Switch Open",  String(digitalRead(PIN_SWITCH_OPEN)));
+    out += kv("Switch Close", String(digitalRead(PIN_SWITCH_CLOSE)));
 
     client->sendMessage(chatId, out);
 }
@@ -240,13 +241,27 @@ static void debugLimits(uint64_t chatId, TelegramClient* client) {
 // ---------------------------------------------------------
 // DEBUG ENERGY
 // ---------------------------------------------------------
-static void debugEnergy(uint64_t chatId, TelegramClient* client) {
-    String out;
-    out.reserve(300);
 
-    out += "🛠 *DEBUG ENERGY*\n";
-    out += "━━━━━━━━━━━━━━━\n";
-    out += "Total Used mAh:    " + String(Energy_getTodaymAh(), 2) + "\n";
+void DebugHandler::debugEnergy(uint64_t chatId, TelegramClient* client) {
+    String out;
+    out.reserve(600);
+
+    out += blockHeader("⚡", "SYSTEM ENERGY");
+    out += kv("Today", String(EnergySys_getTodaymAh(), 2) + " mAh");
+    out += kv("Avg Daily (30d)", String(EnergySys_getAvgDailymAh(), 2) + " mAh/day");
+    out += kv("30-Day Total", String(EnergySys_getMonthlymAh(), 2) + " mAh");
+    out += kv("Peak Current", String(EnergySys_getPeakCurrentmA()) + " mA");
+    out += kv("Avg Current", String(EnergySys_getAvgCurrentmA()) + " mA");
+    out += kv("Last Reset", EnergySys_getLastResetStr());
+    out += "\n";
+
+    out += blockHeader("🔌", "MOTOR ENERGY");
+    out += kv("Today", String(EnergyMotor_getTodaymAh(), 2) + " mAh");
+    out += kv("Avg Daily (30d)", String(EnergyMotor_getAvgDailymAh(), 2) + " mAh/day");
+    out += kv("30-Day Total", String(EnergyMotor_getMonthlymAh(), 2) + " mAh");
+    out += kv("Peak Motor Current", String(EnergyMotor_getPeakCurrentmA()) + " mA");
+    out += kv("Avg Motor Current", String(EnergyMotor_getAvgCurrentmA()) + " mA");
+    out += kv("Last Reset", EnergyMotor_getLastResetStr());
 
     client->sendMessage(chatId, out);
 }
@@ -254,171 +269,181 @@ static void debugEnergy(uint64_t chatId, TelegramClient* client) {
 // ---------------------------------------------------------
 // DEBUG CONFIG
 // ---------------------------------------------------------
-static void debugConfig(uint64_t chatId, TelegramClient* client) {
+
+void DebugHandler::debugConfig(uint64_t chatId, TelegramClient* client) {
     String out;
     out.reserve(400);
 
-    out += "🛠 *DEBUG CONFIG*\n";
-    out += "━━━━━━━━━━━━━━━\n";
-
-    out += "Open Offset:       " + String(Config_getOpenOffset()) + " min\n";
-    out += "Close Offset:      " + String(Config_getCloseOffset()) + " min\n";
-    out += "Timezone:          " + Config_getTimezone() + "\n";
-    out += "Motor Timeout:     " + String(Config_getMotorTimeout()) + " sec\n";
-    out += "Pinch Threshold:   " + String(Config_getPinchThreshold()) + " mA\n";
-    out += "Debug Menu:        " + String(debugMenuEnabled ? "ENABLED" : "disabled") + "\n";
+    out += blockHeader("🛠", "DEBUG CONFIG");
+    out += kv("Open Offset",  String(Config_getOpenOffset()) + " min");
+    out += kv("Close Offset", String(Config_getCloseOffset()) + " min");
+    out += kv("Timezone", Config_getTimezone());
+    out += kv("Motor Timeout", String(Config_getMotorTimeout()) + " sec");
+    out += kv("Pinch Threshold", String(Config_getPinchThreshold()) + " mA");
+    out += kv("Debug Menu", debugMenuEnabled ? "ENABLED" : "disabled");
 
     client->sendMessage(chatId, out);
 }
 
 // ---------------------------------------------------------
-// DEBUG ALL (Full System Snapshot)
+// FULL DEBUG
 // ---------------------------------------------------------
-static void debugAll(uint64_t chatId, TelegramClient* client) {
 
+void DebugHandler::debugAll(uint64_t chatId, TelegramClient* client) {
     String out;
-    out.reserve(1200);
+    out.reserve(2500);
 
-    out += "📑 *FULL DEBUG*\n";
-    out += "━━━━━━━━━━━━━━━━━━\n\n";
-
-    // -----------------------------------------------------
-    // DOOR
-    // -----------------------------------------------------
-    out += "🚪 *DOOR*\n";
-
-    out += "• State: ";
-    switch (Motor_getState()) {
-        case M_OPEN:    out += "OPEN"; break;
-        case M_CLOSED:  out += "CLOSED"; break;
-        case M_OPENING: out += "OPENING"; break;
-        case M_CLOSING: out += "CLOSING"; break;
-        case M_STUCK:   out += "STUCK"; break;
-        default:        out += "UNKNOWN"; break;
-    }
+    out += blockHeader("📑", "FULL DEBUG");
     out += "\n";
 
-    out += "• Health: " + Motor_getHealthString() + "\n";
-    out += "• Override: " + String(remoteOverride ? "true" : "false") + "\n";
-    out += "• Open Cycles: " + String(Motor_getOpenCycles()) + "\n";
-    out += "• Close Cycles: " + String(Motor_getCloseCycles()) + "\n\n";
+    // DOOR
+    out += blockHeader("🚪", "DOOR");
+    out += kv("State", formatDoorState(Motor_getState()));
+    out += kv("Health", Motor_getHealthString());
+    out += kv("Override", formatBool(remoteOverride));
+    out += kv("Open Cycles", String(Motor_getOpenCycles()));
+    out += kv("Close Cycles", String(Motor_getCloseCycles()));
+    out += "\n";
 
-    // -----------------------------------------------------
     // MOTOR
-    // -----------------------------------------------------
-    out += "🔌 *MOTOR*\n";
-
     float current = Motor_getCurrentmA();
-    int pinch     = Config_getPinchThreshold();
+    int pinch = Config_getPinchThreshold();
 
-    out += "• Current: " + String(current, 1) + " mA\n";
-    out += "• Pinch Threshold: " + String(pinch) + " mA\n";
-    out += "• Timeout: " + String(Config_getMotorTimeout()) + " sec\n";
+    out += blockHeader("🔌", "MOTOR");
+    out += kv("Current", String(current, 1) + " mA");
+    out += kv("Pinch Threshold", String(pinch) + " mA");
+    out += kv("Timeout", String(Config_getMotorTimeout()) + " sec");
+    out += kv("Would Stall Now", formatBool(current > pinch, "YES 🚨", "No"));
+    out += kv("Last Command", Motor_getLastCommandString());
+    out += kv("Last Motion Start", Motor_getLastMotionTimestamp());
 
-    bool wouldStall = current > pinch;
-    out += "• Would Stall Now: " + String(wouldStall ? "YES 🚨" : "No") + "\n";
+    float avg = Motor_getAverageTravelTime();
+    out += kv("Avg Travel Time",
+              String(avg, 1) + " sec (" +
+              String(Motor_getTravelSampleCount()) + " samples)");
 
-    out += "• Last Command: " + Motor_getLastCommandString() + "\n";
-    out += "• Last Motion Start: " + Motor_getLastMotionTimestamp() + "\n\n";
+    time_t st = Motor_getLastStallTime();
+    if (st > 0) {
+        String ts = TimeUtils::formatTimestamp(st);
+        MotorDoorState dir = Motor_getLastStallDirection();
+        String d = (dir == M_OPENING) ? "opening" :
+                   (dir == M_CLOSING) ? "closing" : "unknown";
+        out += kv("Last Stall", ts + " (" + d + ")");
+    }
 
-    // -----------------------------------------------------
+    float duty = Motor_getDutyCycle24h();
+    uint32_t ms = Motor_getRuntimeMs24h();
+    out += kv("Duty Cycle (24h)", String(duty, 2) + "% (" + String(ms / 1000) + " sec)");
+    out += "\n";
+
     // LIMIT SWITCHES
-    // -----------------------------------------------------
-    out += "🔘 *LIMIT SWITCHES*\n";
+    out += blockHeader("🔘", "LIMIT SWITCHES");
+    out += kv("Limit Open",  digitalRead(PIN_LIMIT_OPEN)  == LOW ? "HIT" : "not hit");
+    out += kv("Limit Close", digitalRead(PIN_LIMIT_CLOSE) == LOW ? "HIT" : "not hit");
+    out += kv("Switch Open",  String(digitalRead(PIN_SWITCH_OPEN)));
+    out += kv("Switch Close", String(digitalRead(PIN_SWITCH_CLOSE)));
+    out += "\n";
 
-    bool openHit  = (digitalRead(PIN_LIMIT_OPEN)  == LOW);
-    bool closeHit = (digitalRead(PIN_LIMIT_CLOSE) == LOW);
-
-    out += "• Limit Open:  "  + String(openHit  ? "HIT" : "not hit") + "\n";
-    out += "• Limit Close: "  + String(closeHit ? "HIT" : "not hit") + "\n";
-    out += "• Switch Open:  " + String(digitalRead(PIN_SWITCH_OPEN)) + "\n";
-    out += "• Switch Close: " + String(digitalRead(PIN_SWITCH_CLOSE)) + "\n\n";
-
-    // -----------------------------------------------------
     // SUN / SCHEDULER
-    // -----------------------------------------------------
-    out += "🌅 *SUN / SCHEDULER*\n";
-
     int tzHours = TimeUtils::getUTCOffsetHours();
-
     int sr, ss;
     Scheduler_calcLocalSunTimes(sr, ss);
 
     int srH = sr / 60, srM = sr % 60;
     int ssH = ss / 60, ssM = ss % 60;
 
-    out += "• Sunrise: " + String(srH) + ":" + (srM < 10 ? "0" : "") + String(srM) + "\n";
-    out += "• Sunset:  " + String(ssH) + ":" + (ssM < 10 ? "0" : "") + String(ssM) + "\n";
-    out += "• Smart Open:  " + Scheduler_getNextOpen() + "\n";
-    out += "• Smart Close: " + Scheduler_getNextClose() + "\n";
-    out += "• Open Offset:  " + String(Config_getOpenOffset()) + " min\n";
-    out += "• Close Offset: " + String(Config_getCloseOffset()) + " min\n\n";
+    out += blockHeader("🌅", "SUN / SCHEDULER");
+    out += kv("Sunrise", String(srH) + ":" + (srM < 10 ? "0" : "") + String(srM));
+    out += kv("Sunset",  String(ssH) + ":" + (ssM < 10 ? "0" : "") + String(ssM));
+    out += kv("Smart Open", Scheduler_getNextOpen());
+    out += kv("Smart Close", Scheduler_getNextClose());
+    out += kv("Open Offset",  String(Config_getOpenOffset()) + " min");
+    out += kv("Close Offset", String(Config_getCloseOffset()) + " min");
+    out += "\n";
 
-    // -----------------------------------------------------
     // TIME
-    // -----------------------------------------------------
-    out += "🕒 *TIME*\n";
-
     time_t now = time(nullptr);
     struct tm* local = localtime(&now);
     struct tm* utc   = gmtime(&now);
 
-    out += "• Epoch: " + String((uint32_t)now) + "\n";
+    out += blockHeader("🕒", "TIME");
+    out += kv("Epoch", String((uint32_t)now));
+
+    char buf[32];
 
     if (local) {
-        out += "• Local: ";
-        out += String(local->tm_year + 1900) + "-";
-        out += String(local->tm_mon + 1) + "-";
-        out += String(local->tm_mday) + " ";
-        out += String(local->tm_hour) + ":";
-        out += String(local->tm_min) + ":";
-        out += String(local->tm_sec) + "\n";
+        snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d",
+                 local->tm_year + 1900, local->tm_mon + 1, local->tm_mday,
+                 local->tm_hour, local->tm_min, local->tm_sec);
+        out += kv("Local", String(buf));
     }
 
     if (utc) {
-        out += "• UTC:   ";
-        out += String(utc->tm_year + 1900) + "-";
-        out += String(utc->tm_mon + 1) + "-";
-        out += String(utc->tm_mday) + " ";
-        out += String(utc->tm_hour) + ":";
-        out += String(utc->tm_min) + ":";
-        out += String(utc->tm_sec) + "\n";
+        snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d",
+                 utc->tm_year + 1900, utc->tm_mon + 1, utc->tm_mday,
+                 utc->tm_hour, utc->tm_min, utc->tm_sec);
+        out += kv("UTC", String(buf));
     }
 
-    out += "• TZ Offset: " + String(tzHours) + "h\n";
-    out += "• DST: " + String(local && local->tm_isdst ? "yes" : "no") + "\n";
-    out += "• Uptime: " + TimeUtils::getUptime() + "\n\n";
+    out += kv("TZ Offset", String(tzHours) + "h");
+    out += kv("DST", formatBool(local && local->tm_isdst, "yes", "no"));
+    out += kv("Uptime", TimeUtils::getUptime());
+    out += "\n";
 
-    // -----------------------------------------------------
     // SYSTEM
-    // -----------------------------------------------------
-    out += "📡 *SYSTEM*\n";
-
-    out += "• Simulation Mode: " + String(Config_isSimulatedHardware() ? "ON 🧪" : "OFF") + "\n";
-    out += "• Debug Menu: " + String(debugMenuEnabled ? "ENABLED" : "disabled") + "\n";
-    out += "• Chat ID: " + String(chatId) + "\n\n";
+    out += blockHeader("📡", "SYSTEM");
+    out += kv("Simulation Mode", Config_isSimulatedHardware() ? "ON 🧪" : "OFF");
+    out += kv("Debug Menu", debugMenuEnabled ? "ENABLED" : "disabled");
+    out += kv("Chat ID", String(chatId));
+    out += "\n";
 
     // -----------------------------------------------------
     // ENERGY
     // -----------------------------------------------------
-    out += "⚡ *ENERGY*\n";
-    out += "• Today Used: " + String(Energy_getTodaymAh(), 2) + " mAh\n";
-    out += "• Peak Current: " + String(Motor_getPeakCurrentmA()) + " mA\n";
-    out += "• Avg Current: " + String(Motor_getAverageCurrentmA()) + " mA\n\n";
+    out += blockHeader("⚡", "SYSTEM ENERGY");
+    out += kv("Today", String(EnergySys_getTodaymAh(), 2) + " mAh");
+    out += kv("Avg Daily (30d)", String(EnergySys_getAvgDailymAh(), 2) + " mAh/day");
+    out += kv("30-Day Total", String(EnergySys_getMonthlymAh(), 2) + " mAh");
+    out += kv("Peak Current", String(EnergySys_getPeakCurrentmA()) + " mA");
+    out += kv("Avg Current", String(EnergySys_getAvgCurrentmA()) + " mA");
+    out += kv("Last Reset", EnergySys_getLastResetStr());
+    out += "\n";
+
+    out += blockHeader("🔌", "MOTOR ENERGY");
+    out += kv("Today", String(EnergyMotor_getTodaymAh(), 2) + " mAh");
+    out += kv("Avg Daily (30d)", String(EnergyMotor_getAvgDailymAh(), 2) + " mAh/day");
+    out += kv("30-Day Total", String(EnergyMotor_getMonthlymAh(), 2) + " mAh");
+    out += kv("Peak Motor Current", String(EnergyMotor_getPeakCurrentmA()) + " mA");
+    out += kv("Avg Motor Current", String(EnergyMotor_getAvgCurrentmA()) + " mA");
+    out += kv("Last Reset", EnergyMotor_getLastResetStr());
+    out += "\n";
+
+    // -----------------------------------------------------
+    // BATTERY
+    // -----------------------------------------------------
+    float minV = Battery_getMinToday();
+    float maxV = Battery_getMaxToday();
+
+    out += blockHeader("🔋", "BATTERY");
+    out += kv("Today", String(maxV, 2) + "V max / " + String(minV, 2) + "V min");
+    out += "\n";
 
     // -----------------------------------------------------
     // LAST ACTION
     // -----------------------------------------------------
-    out += "📝 *LAST ACTION*\n";
+    out += blockHeader("📝", "LAST ACTION");
     out += "• " + Log_getLastAction() + "\n";
 
+    // -----------------------------------------------------
+    // SEND
+    // -----------------------------------------------------
     client->sendMessageWithKeyboard(chatId, out, kbDebug());
 }
 
 // ---------------------------------------------------------
 // MAIN HANDLER
 // ---------------------------------------------------------
-void handle(const TelegramEvent& evt, TelegramClient* client) {
+void DebugHandler::handle(const TelegramEvent& evt, TelegramClient* client) {
 
     switch (evt.type) {
 
@@ -462,9 +487,6 @@ void handle(const TelegramEvent& evt, TelegramClient* client) {
             debugAll(evt.chatId, client);
             return;
 
-        // -----------------------------------------------------
-        // Debug ON/OFF
-        // -----------------------------------------------------
         case EVT_DEBUG_ON:
             debugMenuEnabled = true;
             client->sendMessageWithKeyboard(
@@ -483,9 +505,6 @@ void handle(const TelegramEvent& evt, TelegramClient* client) {
             );
             return;
 
-        // -----------------------------------------------------
-        // BACK → return to Settings
-        // -----------------------------------------------------
         case EVT_BACK:
             client->sendMessageWithKeyboard(
                 evt.chatId,
@@ -503,5 +522,3 @@ void handle(const TelegramEvent& evt, TelegramClient* client) {
             return;
     }
 }
-
-} // namespace DebugHandler

@@ -9,7 +9,6 @@
 #include <time.h>
 #include <Wire.h>
 #include <esp_task_wdt.h>
-#include <WiFiManager.h>
 #include <Preferences.h>
 
 #include "modules/system/Globals.h"
@@ -33,13 +32,13 @@
 #include "modules/config/Config.h"
 
 #include "modules/utils/TimeUtils.h"
+#include "modules/time/TimeManager.h"
 
 #include "modules/telegram/TelegramClient.h"
 #include "modules/telegram/TelegramTask.h"
 #include "modules/telegram/TelegramCertificate.h"
-#include "modules/system/WiFiSetup.h"
 
-#include "modules/time/TimeManager.h"
+#include "modules/system/SupervisorTask.h"
 
 #define WDT_TIMEOUT 60
 
@@ -51,81 +50,52 @@ static void portalLog(const String& msg) {
 void setup() {
     Serial.begin(115200);
     delay(200);
-    // ------------------------------
-// FACTORY RESET TRIGGER (Manual Override Switch)
-// ------------------------------
-pinMode(14, INPUT_PULLUP);   // Manual OPEN
-pinMode(27, INPUT_PULLUP);   // Manual CLOSE
-
-// If switch is in CLOSED position at boot, trigger full reset
-if (digitalRead(27) == LOW) {
-    Serial.println("FACTORY RESET TRIGGERED (override switch CLOSED at boot)");
-
-    // Clear WiFiManager settings
-    WiFiManager wm;
-    wm.resetSettings();
-
-    // Clear all stored config (Preferences)
-    Preferences prefs;
-    prefs.begin("config", false);
-    prefs.clear();
-    prefs.end();
-
-    delay(500);
-
-    // Start WiFi portal
-    wm.startConfigPortal("PoultryPortal-Setup");
-
-    // After saving, reboot
-    ESP.restart();
-}
 
     portalLog("🐔 PoultryPortal Starting...");
 
-    // --- Hardware Init ---
+    // -----------------------------------------------------
+    // Initialize globals
+    // -----------------------------------------------------
+    Globals_begin();
+
+    // -----------------------------------------------------
+    // Hardware init
+    // -----------------------------------------------------
     HardwarePins_begin();
     Motor_begin();
     DisplayTask_begin();
 
-    // --- Load config FIRST ---
+    // -----------------------------------------------------
+    // Load config
+    // -----------------------------------------------------
     Config_load();
     addLog("Bot token = [" + Config_getBotToken() + "]");
 
-    // --- WiFi ---
+    // -----------------------------------------------------
+    // WiFi + Telegram config portal
+    // -----------------------------------------------------
     if (!WiFiSetup_begin()) {
         portalLog("❌ WiFi setup failed — rebooting");
         delay(2000);
         ESP.restart();
     }
 
-    // --- NTP BEFORE ANY TLS ---
+    // -----------------------------------------------------
+    // Time sync (non-blocking)
+    // -----------------------------------------------------
     TimeManager::begin();
-    portalLog("⏱️ Time synchronized");
+    portalLog("⏱️ Time sync started");
 
-    // Wait until Unix time is valid
-    time_t now = time(nullptr);
-    int retries = 0;
-    while (now < 1700000000 && retries < 50) {
-        delay(200);
-        now = time(nullptr);
-        retries++;
-    }
-
-    if (now < 1700000000) {
-        portalLog("⚠️ Time sync still invalid after waiting");
-    } else {
-        portalLog("⏱️ Time synchronized (verified)");
-    }
-
-    portalLog("Free heap: " + String(ESP.getFreeHeap()));
-    portalLog("Free PSRAM: " + String(ESP.getFreePsram()));
-
-    // --- Telegram subsystem ---
+    // -----------------------------------------------------
+    // Telegram subsystem
+    // -----------------------------------------------------
     static TelegramClient tgClient(Config_getBotToken(), TELEGRAM_CERTIFICATE_ROOT);
     static TelegramTask tgTask(&tgClient);
     tgTask.start();
 
-    // --- Remaining Subsystems ---
+    // -----------------------------------------------------
+    // Subsystems
+    // -----------------------------------------------------
     Battery_begin();
     Energy_begin();
     SensorTask_begin();
@@ -133,12 +103,24 @@ if (digitalRead(27) == LOW) {
     SchedulerTask_begin();
     AutoMode_begin();
 
-    // OTA init
+    // -----------------------------------------------------
+    // OTA
+    // -----------------------------------------------------
     ArduinoOTA.setHostname("PoultryPortal");
     ArduinoOTA.begin();
 
+    // -----------------------------------------------------
+    // AutoMode correction after boot
+    // -----------------------------------------------------
     AutoMode_bootCorrection();
-    Serial.println("Bot token: [" + Config_getBotToken() + "]");
+
+    portalLog("Free heap: " + String(ESP.getFreeHeap()));
+    portalLog("Free PSRAM: " + String(ESP.getFreePsram()));
+
+    // -----------------------------------------------------
+    // Supervisor Task (strict safety mode)
+    // -----------------------------------------------------
+    SupervisorTask_begin();
 
     portalLog("=== BOOT COMPLETE ===");
 }
@@ -192,9 +174,7 @@ void handleSerialCommands() {
 
 void loop() {
     handleSerialCommands();
-    delay(200);
     esp_task_wdt_reset();
     ArduinoOTA.handle();
     delay(10);
-    
 }

@@ -1,25 +1,27 @@
 #include "SettingsHandler.h"
 #include "../../keyboards/TelegramKeyboards.h"
 
-// If you want to log settings access:
-// #include "Logging.h"
+// ---------------------------------------------------------
+// Formatting Helper
+// ---------------------------------------------------------
+String SettingsHandler::blockHeader(const String& emoji, const String& title) {
+    return emoji + " *" + title + "*\n━━━━━━━━━━━━━━━\n";
+}
 
+// ---------------------------------------------------------
+// Handler
+// ---------------------------------------------------------
 void SettingsHandler::handle(const TelegramEvent& evt, TelegramClient* client) {
 
-    // Settings keyboard (your existing kbSettings())
-    String kbd = kbSettings();
+    String out;
+    out.reserve(200);
 
-    // Optional logging
-    // addLog("Menu → Settings opened");
-
-    String msg =
-        "⚙️ *SETTINGS*\n"
-        "━━━━━━━━━━━━━━━\n"
-        "Adjust system configuration below.";
+    out += blockHeader("⚙️", "SETTINGS");
+    out += "Adjust system configuration below.";
 
     client->sendMessageWithKeyboard(
         evt.chatId,
-        msg,
-        kbd
+        out,
+        kbSettings()
     );
 }

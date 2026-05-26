@@ -1,14 +1,38 @@
 #include "TelegramClient.h"
 #include <ArduinoJson.h>
 
+TelegramClient* TelegramClient::instance = nullptr;
+
 // ---------------------------------------------------------
 // Constructor
 // ---------------------------------------------------------
 TelegramClient::TelegramClient(const String& token, const char* rootCert)
     : token(token)
 {
+    instance = this;  // ⭐ Global pointer for SupervisorTask
+
     client.setCACert(rootCert);
-    client.setTimeout(100);   // ⭐ Fast read timeout (100ms)
+    client.setTimeout(100);   // Fast read timeout
+}
+
+// ---------------------------------------------------------
+// JSON escape helper
+// ---------------------------------------------------------
+String TelegramClient::escapeJSON(const String& s) {
+    String out;
+    out.reserve(s.length());
+
+    for (char c : s) {
+        switch (c) {
+            case '\"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:   out += c; break;
+        }
+    }
+    return out;
 }
 
 // ---------------------------------------------------------
@@ -36,11 +60,11 @@ bool TelegramClient::httpsGET(const String& url, String& response) {
 
     response = "";
 
-    // ⭐ FAST READ LOOP — non-blocking, byte-by-byte
     while (client.connected() || client.available()) {
         while (client.available()) {
             response += (char)client.read();
         }
+        delay(2);  // ⭐ Prevent WiFi starvation
     }
 
     return true;
@@ -67,11 +91,11 @@ bool TelegramClient::httpsPOST(const String& url, const String& body, String& re
 
     response = "";
 
-    // ⭐ FAST READ LOOP
     while (client.connected() || client.available()) {
         while (client.available()) {
             response += (char)client.read();
         }
+        delay(2);  // ⭐ Prevent WiFi starvation
     }
 
     return true;
@@ -86,7 +110,7 @@ bool TelegramClient::sendMessage(uint64_t chatId, const String& text) {
 
     String payload =
         "{\"chat_id\":" + String(chatId) +
-        ",\"text\":\"" + text + "\"}";
+        ",\"text\":\"" + escapeJSON(text) + "\"}";
 
     String response;
     return httpsPOST(url, payload, response);
@@ -104,7 +128,7 @@ bool TelegramClient::sendMessageWithKeyboard(
 
     String payload =
         "{\"chat_id\":" + String(chatId) +
-        ",\"text\":\"" + text +
+        ",\"text\":\"" + escapeJSON(text) +
         "\",\"reply_markup\":" + keyboardJson + "}";
 
     String response;
@@ -120,10 +144,10 @@ bool TelegramClient::sendPhotoByUrl(uint64_t chatId, const String& url, const St
 
     String payload = "{";
     payload += "\"chat_id\":" + String(chatId) + ",";
-    payload += "\"photo\":\"" + url + "\"";
+    payload += "\"photo\":\"" + escapeJSON(url) + "\"";
 
     if (caption.length() > 0) {
-        payload += ",\"caption\":\"" + caption + "\"";
+        payload += ",\"caption\":\"" + escapeJSON(caption) + "\"";
     }
 
     payload += "}";
@@ -137,7 +161,6 @@ bool TelegramClient::sendPhotoByUrl(uint64_t chatId, const String& url, const St
 // ---------------------------------------------------------
 String TelegramClient::getUpdates() {
 
-    // ⭐ Short-polling: timeout=1 (instead of Telegram default 5 seconds)
     String url = buildURL(
         "getUpdates?timeout=1&offset=" + String(lastUpdateId + 1)
     );
@@ -154,7 +177,6 @@ bool TelegramClient::getNextUpdate(TelegramUpdate& out) {
 
     String json = getUpdates();
 
-    // Extract JSON body
     int start = json.indexOf('{');
     int end   = json.lastIndexOf('}');
     if (start < 0 || end <= start) {
@@ -179,12 +201,9 @@ bool TelegramClient::getNextUpdate(TelegramUpdate& out) {
 
     JsonObject update = results[0];
 
-    // Update offset
     lastUpdateId = update["update_id"] | lastUpdateId;
 
-    // ---------------------------------------------------------
     // CALLBACK QUERY
-    // ---------------------------------------------------------
     if (update.containsKey("callback_query")) {
         JsonObject cb = update["callback_query"];
 
@@ -194,9 +213,7 @@ bool TelegramClient::getNextUpdate(TelegramUpdate& out) {
         return true;
     }
 
-    // ---------------------------------------------------------
     // NORMAL MESSAGE
-    // ---------------------------------------------------------
     if (update.containsKey("message")) {
         JsonObject msg = update["message"];
 

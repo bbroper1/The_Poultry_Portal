@@ -4,8 +4,11 @@
 
 namespace TimeManager {
 
-    // Call once at boot (after WiFi connects)
+    // Initialize NTP + timezone (non-blocking)
     void begin();
+
+    // Force NTP resync (safe to call anytime)
+    void syncNTP();
 
     // Returns true if NTP time is valid
     bool isValid();
@@ -18,4 +21,10 @@ namespace TimeManager {
 
     // Formats a timestamp into "YYYY-MM-DD HH:MM"
     String formatTimestamp(time_t t);
+
+    // Formats with seconds "YYYY-MM-DD HH:MM:SS"
+    String formatTimestampSeconds(time_t t);
+
+    // Returns millis()/1000 as a monotonic uptime timestamp
+    unsigned long uptimeSeconds();
 }

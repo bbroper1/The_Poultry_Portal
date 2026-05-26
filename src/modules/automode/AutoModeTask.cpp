@@ -2,24 +2,29 @@
 #include "modules/config/Config.h"
 #include "modules/motor/MotorTask.h"
 #include "modules/system/Logging.h"
-#include "modules/utils/TimeUtils.h"
 #include "modules/scheduler/SunContext.h"
 #include "modules/time/TimeManager.h"
 
 #include <sunset.h>
-#include <time.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+TaskHandle_t s_autoModeTaskHandle = nullptr;
 
 // ---------------------------------------------------------
 // External globals
 // ---------------------------------------------------------
 extern SunSet sun;
 extern bool remoteOverride;
+extern time_t remoteOverrideUntil;
 
+// ---------------------------------------------------------
+// Helper: is override active?
+// ---------------------------------------------------------
 bool AutoMode_isOverrideActive() {
-    return remoteOverride;
+    time_t now = time(nullptr);
+    return (remoteOverride && now < remoteOverrideUntil);
 }
 
 // ---------------------------------------------------------
@@ -57,8 +62,8 @@ static bool computeShouldBeOpen(bool& out) {
 // Boot Correction (one-shot)
 // ---------------------------------------------------------
 void AutoMode_bootCorrection() {
-    if (remoteOverride) {
-        addLog("Auto Boot → Skipped (manual override)");
+    if (AutoMode_isOverrideActive()) {
+        addLog("Auto Boot → Skipped (manual override active)");
         return;
     }
 
@@ -93,15 +98,38 @@ void AutoMode_bootCorrection() {
 static void AutoModeTask(void* pv) {
     setenv("TZ", Config_getTimezone().c_str(), 1);
     tzset();
-    const TickType_t interval = pdMS_TO_TICKS(60000);
+
+    const TickType_t interval = pdMS_TO_TICKS(60000); // 1 minute
     TickType_t lastWake = xTaskGetTickCount();
 
     for (;;) {
         vTaskDelayUntil(&lastWake, interval);
 
-        if (remoteOverride)
-            continue;
+        time_t now = time(nullptr);
 
+        // -------------------------------------------------
+        // Handle override expiration
+        // -------------------------------------------------
+        if (remoteOverride && now >= remoteOverrideUntil) {
+            remoteOverride = false;
+            addLog("AutoMode → Override expired, resuming AutoMode");
+        }
+
+        // -------------------------------------------------
+        // Skip AutoMode while override is active
+        // -------------------------------------------------
+        if (AutoMode_isOverrideActive()) {
+            int secLeft = remoteOverrideUntil - now;
+            if (secLeft < 0) secLeft = 0;
+
+            int minLeft = secLeft / 60;
+            addLog("AutoMode → Override active (" + String(minLeft) + "m left)");
+            continue;
+        }
+
+        // -------------------------------------------------
+        // Normal AutoMode logic
+        // -------------------------------------------------
         bool shouldBeOpen = false;
         if (!computeShouldBeOpen(shouldBeOpen))
             continue;

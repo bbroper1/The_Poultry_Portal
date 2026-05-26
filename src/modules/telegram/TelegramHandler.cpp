@@ -1,6 +1,7 @@
 #include "TelegramHandler.h"
 #include "TelegramClient.h"
 
+// Keyboards
 #include "modules/keyboards/TelegramKeyboards.h"
 
 // Modular handlers
@@ -20,92 +21,73 @@
 // Door control
 #include "modules/door/DoorController.h"
 
-// Config (needed for location)
+// Config
 #include "modules/config/Config.h"
+
+// Globals
+#include "modules/system/Globals.h"
+
+// Time utilities
+#include "modules/utils/TimeUtils.h"
+#include "modules/time/TimeManager.h"
+#include "modules/scheduler/SunContext.h"
 
 #include <Arduino.h>
 
-namespace TelegramHandler {
+extern SunSet sun;
 
-void handle(const TelegramEvent& evt, TelegramClient* client) {
+// ---------------------------------------------------------
+// Formatting Helper
+// ---------------------------------------------------------
+String TelegramHandler::blockHeader(const String& emoji, const String& title) {
+    return emoji + " *" + title + "*\n━━━━━━━━━━━━━━━\n";
+}
+
+// ---------------------------------------------------------
+// MAIN DISPATCHER
+// ---------------------------------------------------------
+void TelegramHandler::handle(const TelegramEvent& evt, TelegramClient* client) {
 
     Serial.println(">>> HANDLER: dispatching event type = " + String(evt.type));
 
+    // ---------------------------------------------------------
+    // OFFSET VALUE ENTRY (text → EVT_OFFSET_VALUE)
+    // ---------------------------------------------------------
+    if ((OffsetHandler::isWaitingForOpen() || OffsetHandler::isWaitingForClose()) &&
+        evt.type == EVT_MOTOR_VALUE)
+    {
+        TelegramEvent e = evt;
+        e.type = EVT_OFFSET_VALUE;
+        OffsetHandler::handle(e, client);
+        return;
+    }
+
     switch (evt.type) {
 
-        // -------------------------------------------------
+        // ---------------------------------------------------------
         // CORE COMMANDS
-        // -------------------------------------------------
-        case EVT_STATUS:
-            StatusHandler::handle(evt, client);
-            return;
-
-        case EVT_HEALTH:
-            HealthHandler::handle(evt, client);
-            return;
-
-        case EVT_ENERGY:
-            EnergyHandler::handle(evt, client);
-            return;
-
-        case EVT_LOGS:
-            LogsHandler::handle(evt, client);
-            return;
+        // ---------------------------------------------------------
+        case EVT_STATUS:        StatusHandler::handle(evt, client); return;
+        case EVT_HEALTH:        HealthHandler::handle(evt, client); return;
+        case EVT_ENERGY:        EnergyHandler::handle(evt, client); return;
+        case EVT_LOGS:          LogsHandler::handle(evt, client); return;
 
         case EVT_HELP:
             client->sendMessageWithKeyboard(
                 evt.chatId,
-                "🆘 *Help & Commands*\n"
-                "━━━━━━━━━━━━━━━━━━\n\n"
-
-                "Here’s everything your PoultryPortal can do:\n\n"
-
-                "📊 *Status & System Info*\n"
-                "• /status – Full system status\n"
-                "• /health – Motor health & diagnostics\n"
-                "• /energy – Power usage & current draw\n"
-                "• /logs – Recent activity (with pages)\n\n"
-
-                "⚙️ *Settings & Configuration*\n"
-                "• /settings – Open settings menu\n"
-                "• /timezone – Set your local timezone\n"
-                "• /location – Update GPS location\n"
-                "• Open/Close offsets & motor settings live in menus\n\n"
-
-                "🚪 *Door Control*\n"
-                "• /open – Open the door\n"
-                "• /close – Close the door\n"
-                "• /auto – Enable automatic sunrise/sunset mode\n\n"
-
-                "🛠 *Debug Tools*\n"
-                "• /debug – Debug menu (door, time, sun, limits, energy)\n"
-                "• /sim – Simulation mode controls\n\n"
-
-                "📌 *Tips*\n"
-                "• Use the on‑screen buttons for quick navigation\n"
-                "• Logs support *Next*, *Prev*, *First*, *Last* pages\n"
-                "• Settings and Debug menus include BACK buttons\n"
-                "• Location pin updates sunrise/sunset calculations\n\n"
-
-                "If you ever get lost, just press *BACK* or return to the main menu.",
+                blockHeader("🆘", "HELP & COMMANDS") +
+                "Use the on‑screen buttons for quick navigation.\n"
+                "If you ever get lost, press BACK.",
                 kbMain()
             );
             return;
 
-        // -------------------------------------------------
+        // ---------------------------------------------------------
         // MENU NAVIGATION
-        // -------------------------------------------------
-        case EVT_SHOW_MAIN_MENU:
-            MenuHandler::handle(evt, client);
-            return;
-
-        case EVT_SHOW_SETTINGS:
-            SettingsHandler::handle(evt, client);
-            return;
-
-        case EVT_SHOW_DEBUG:
-            DebugHandler::handle(evt, client);
-            return;
+        // ---------------------------------------------------------
+        case EVT_SHOW_MAIN_MENU:    MenuHandler::handle(evt, client); return;
+        case EVT_SHOW_SETTINGS:     SettingsHandler::handle(evt, client); return;
+        case EVT_SHOW_DEBUG:        DebugHandler::handle(evt, client); return;
 
         case EVT_SHOW_TIMEZONE:
         case EVT_SET_TIMEZONE:
@@ -117,54 +99,129 @@ void handle(const TelegramEvent& evt, TelegramClient* client) {
             MotorHandler::handle(evt, client);
             return;
 
-        // -------------------------------------------------
-        // DOOR CONTROL
-        // -------------------------------------------------
+        // ---------------------------------------------------------
+        // DOOR CONTROL — SHOW OVERRIDE MENU
+        // ---------------------------------------------------------
         case EVT_OPEN:
-            DoorController::openDoor();
-            client->sendMessageWithKeyboard(evt.chatId, "👐 Opening door…", kbMain());
+            overrideIsOpenCommand = true;
+            client->sendMessageWithKeyboard(
+                evt.chatId,
+                blockHeader("⏳", "MANUAL OVERRIDE") +
+                "How long should I keep the door OPEN?",
+                kbOverrideMenu(true)
+            );
             return;
 
         case EVT_CLOSE:
-            DoorController::closeDoor();
-            client->sendMessageWithKeyboard(evt.chatId, "🚪 Closing door…", kbMain());
+            overrideIsOpenCommand = false;
+            client->sendMessageWithKeyboard(
+                evt.chatId,
+                blockHeader("⏳", "MANUAL OVERRIDE") +
+                "How long should I keep the door CLOSED?",
+                kbOverrideMenu(false)
+            );
             return;
 
         case EVT_AUTO:
             DoorController::enableAutoMode(true);
+            remoteOverride = false;
             client->sendMessageWithKeyboard(evt.chatId, "🤖 Auto mode enabled", kbMain());
             return;
 
-        // -------------------------------------------------
+        // ---------------------------------------------------------
+        // OVERRIDE DURATION HANDLING
+        // ---------------------------------------------------------
+        case EVT_OVERRIDE_15:
+        case EVT_OVERRIDE_30:
+        case EVT_OVERRIDE_60:
+        case EVT_OVERRIDE_SUNSET:
+        case EVT_OVERRIDE_SUNRISE:
+        {
+            time_t now = time(nullptr);
+
+            switch (evt.type) {
+                case EVT_OVERRIDE_15:      remoteOverrideUntil = now + 15 * 60; break;
+                case EVT_OVERRIDE_30:      remoteOverrideUntil = now + 30 * 60; break;
+                case EVT_OVERRIDE_60:      remoteOverrideUntil = now + 60 * 60; break;
+
+                case EVT_OVERRIDE_SUNSET: {
+                    struct tm nowTm = TimeManager::getLocalTime();
+                    sun.setCurrentDate(nowTm.tm_year + 1900, nowTm.tm_mon + 1, nowTm.tm_mday);
+                    sun.setPosition(Config_getLat(), Config_getLong(), TimeManager::utcOffsetHours());
+                    int sunsetMin = (int)sun.calcSunset() + Config_getCloseOffset();
+                    remoteOverrideUntil = TimeUtils::todayAtMinutes(sunsetMin);
+                    break;
+                }
+
+                case EVT_OVERRIDE_SUNRISE: {
+                    struct tm nowTm = TimeManager::getLocalTime();
+                    sun.setCurrentDate(nowTm.tm_year + 1900, nowTm.tm_mon + 1, nowTm.tm_mday + 1);
+                    sun.setPosition(Config_getLat(), Config_getLong(), TimeManager::utcOffsetHours());
+                    int sunriseMin = (int)sun.calcSunrise() + Config_getOpenOffset();
+                    remoteOverrideUntil = TimeUtils::tomorrowAtMinutes(sunriseMin);
+                    break;
+                }
+            }
+
+            remoteOverride = true;
+            String untilStr = TimeUtils::formatTimestamp(remoteOverrideUntil);
+
+            if (overrideIsOpenCommand) {
+                DoorController::openDoor();
+                client->sendMessageWithKeyboard(
+                    evt.chatId,
+                    "👐 Door opened.\n⏳ Override active until: " + untilStr,
+                    kbMain()
+                );
+            } else {
+                DoorController::closeDoor();
+                client->sendMessageWithKeyboard(
+                    evt.chatId,
+                    "🚪 Door closed.\n⏳ Override active until: " + untilStr,
+                    kbMain()
+                );
+            }
+            return;
+        }
+
+        case EVT_OVERRIDE_CANCEL:
+            remoteOverride = false;
+            client->sendMessageWithKeyboard(
+                evt.chatId,
+                "❌ Manual override cancelled.\n🤖 Auto mode resumed.",
+                kbMain()
+            );
+            return;
+
+        // ---------------------------------------------------------
         // LOCATION UPDATE
-        // -------------------------------------------------
-        case EVT_LOCATION: {
+        // ---------------------------------------------------------
+        case EVT_LOCATION:
             Config_setLat(evt.latitude);
             Config_setLong(evt.longitude);
             Config_save();
 
             client->sendMessageWithKeyboard(
                 evt.chatId,
-                "📍 Location updated:\n"
-                "Lat: " + String(evt.latitude, 6) + "\n"
+                blockHeader("📍", "LOCATION UPDATED") +
+                "Lat: " + String(evt.latitude, 6) + "\n" +
                 "Lon: " + String(evt.longitude, 6),
                 kbMain()
             );
             return;
-        }
 
-        // -------------------------------------------------
+        // ---------------------------------------------------------
         // OFFSET HANDLING
-        // -------------------------------------------------
+        // ---------------------------------------------------------
         case EVT_SET_OPEN_OFFSET:
         case EVT_SET_CLOSE_OFFSET:
         case EVT_OFFSET_VALUE:
             OffsetHandler::handle(evt, client);
             return;
 
-        // -------------------------------------------------
+        // ---------------------------------------------------------
         // MOTOR HANDLING
-        // -------------------------------------------------
+        // ---------------------------------------------------------
         case EVT_SET_MOTOR_TIMEOUT:
         case EVT_SET_PINCH_THRESHOLD:
         case EVT_MOTOR_VALUE:
@@ -176,9 +233,9 @@ void handle(const TelegramEvent& evt, TelegramClient* client) {
             MotorHandler::handle(evt, client);
             return;
 
-        // -------------------------------------------------
+        // ---------------------------------------------------------
         // DEBUG HANDLING
-        // -------------------------------------------------
+        // ---------------------------------------------------------
         case EVT_DEBUG_DOOR:
         case EVT_DEBUG_TIME:
         case EVT_DEBUG_SUN:
@@ -193,11 +250,9 @@ void handle(const TelegramEvent& evt, TelegramClient* client) {
             DebugHandler::handle(evt, client);
             return;
 
-        // -------------------------------------------------
-
-        // -------------------------------------------------
+        // ---------------------------------------------------------
         // SIMULATION MODE COMMANDS
-        // -------------------------------------------------
+        // ---------------------------------------------------------
         case EVT_SIM_ON:
         case EVT_SIM_OFF:
         case EVT_SIM_STATUS:
@@ -208,9 +263,9 @@ void handle(const TelegramEvent& evt, TelegramClient* client) {
             SimHandler::handle(evt, client);
             return;
 
-        // -------------------------------------------------
+        // ---------------------------------------------------------
         // LOGS HANDLING
-        // -------------------------------------------------
+        // ---------------------------------------------------------
         case EVT_SHOW_LOGS:
         case EVT_LOGS_NEXT:
         case EVT_LOGS_PREV:
@@ -219,44 +274,28 @@ void handle(const TelegramEvent& evt, TelegramClient* client) {
             LogsHandler::handle(evt, client);
             return;
 
-        // -------------------------------------------------
+        // ---------------------------------------------------------
         // UNIVERSAL BACK HANDLING
-        // -------------------------------------------------
+        // ---------------------------------------------------------
         case EVT_BACK:
             switch (menuState) {
-
-                case MENU_TIMEZONE:
-                    SettingsHandler::handle(evt, client);
-                    return;
-
-                case MENU_SETTINGS:
-                    MenuHandler::handle(evt, client);
-                    return;
-
-                case MENU_DEBUG:
-                    SettingsHandler::handle(evt, client);
-                    return;
-
-                case MENU_MOTOR:
-                    SettingsHandler::handle(evt, client);
-                    return;
-
-                default:
-                    MenuHandler::handle(evt, client);
-                    return;
+                case MENU_TIMEZONE: SettingsHandler::handle(evt, client); return;
+                case MENU_SETTINGS: MenuHandler::handle(evt, client); return;
+                case MENU_DEBUG:    SettingsHandler::handle(evt, client); return;
+                case MENU_MOTOR:    SettingsHandler::handle(evt, client); return;
+                default:            MenuHandler::handle(evt, client); return;
             }
 
-        // -------------------------------------------------
-        // UNKNOWN / UNMIGRATED
-        // -------------------------------------------------
+        // ---------------------------------------------------------
+        // UNKNOWN
+        // ---------------------------------------------------------
         default:
             client->sendMessageWithKeyboard(
                 evt.chatId,
-                "❓ I didn’t understand that command.",
+                blockHeader("❓", "UNKNOWN COMMAND") +
+                "I didn’t understand that command.",
                 kbMain()
             );
             return;
     }
 }
-
-} // namespace TelegramHandler

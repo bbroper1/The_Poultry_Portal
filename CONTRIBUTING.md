@@ -64,5 +64,20 @@ If you find a bug or have a feature request:
 - Include steps to reproduce (if applicable)
 - Attach logs or screenshots when helpful
 
+# Contributing to PoultryPortal
+
+Thank you for your interest in contributing to PoultryPortal!  
+This project follows a clean, modular architecture and aims for professional‑grade firmware quality.  
+The guidelines below help ensure consistency, reliability, and maintainability.
+
+---
+
+## 🛠 Development Workflow
+
+### 1. Fork and clone the repository
+```bash
+git clone https://github.com/<your-username>/The_Poultry_Portal.git
+
+
 ❤️ Thank You
 Your contributions help make PoultryPortal more reliable, maintainable, and useful for everyone.

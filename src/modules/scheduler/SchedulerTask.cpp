@@ -13,6 +13,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+TaskHandle_t s_schedulerTaskHandle = nullptr;
+
 // ---------------------------------------------------------
 // External SunSet instance (owned by SunContext)
 // ---------------------------------------------------------
@@ -27,7 +29,15 @@ struct SchedulerContext {
 };
 
 static SchedulerContext* ctx = nullptr;
-TaskHandle_t s_schedulerTaskHandle = nullptr;
+
+// ---------------------------------------------------------
+// Utility: wrap minutes into 0–1439
+// ---------------------------------------------------------
+static inline int wrapMinutes(int m) {
+    if (m < 0)     return m + 1440;
+    if (m >= 1440) return m - 1440;
+    return m;
+}
 
 // ---------------------------------------------------------
 // RAW Sunrise / Sunset Calculation (NO OFFSETS)
@@ -36,8 +46,8 @@ void Scheduler_calcLocalSunTimes(int &sunriseLocal, int &sunsetLocal) {
 
     float lat = Config_getLat();
     float lon = Config_getLong();
-
     float tzHours = TimeManager::utcOffsetHours();
+
     sun.setPosition(lat, lon, tzHours);
 
     struct tm nowTm = TimeManager::getLocalTime();
@@ -47,17 +57,8 @@ void Scheduler_calcLocalSunTimes(int &sunriseLocal, int &sunsetLocal) {
         nowTm.tm_mday
     );
 
-    int sunrise = (int)sun.calcSunrise();
-    int sunset  = (int)sun.calcSunset();
-
-    sunriseLocal = sunrise;
-    sunsetLocal  = sunset;
-
-    if (sunriseLocal < 0) sunriseLocal += 1440;
-    if (sunriseLocal >= 1440) sunriseLocal -= 1440;
-
-    if (sunsetLocal < 0) sunsetLocal += 1440;
-    if (sunsetLocal >= 1440) sunsetLocal -= 1440;
+    sunriseLocal = wrapMinutes((int)sun.calcSunrise());
+    sunsetLocal  = wrapMinutes((int)sun.calcSunset());
 }
 
 // ---------------------------------------------------------
@@ -75,7 +76,29 @@ static String formatSmartTime(int minutes, int offset, const struct tm* date) {
 }
 
 // ---------------------------------------------------------
-// NEXT SMART OPEN (raw sunrise + offset)
+// Helper: Should door be open right now?
+// ---------------------------------------------------------
+bool Scheduler_shouldBeOpenNow() {
+    if (!TimeManager::isValid())
+        return false;
+
+    int sunriseRaw, sunsetRaw;
+    Scheduler_calcLocalSunTimes(sunriseRaw, sunsetRaw);
+
+    int openOffset  = Config_getOpenOffset();
+    int closeOffset = Config_getCloseOffset();
+
+    int sunriseAdj = wrapMinutes(sunriseRaw + openOffset);
+    int sunsetAdj  = wrapMinutes(sunsetRaw + closeOffset);
+
+    struct tm nowTm = TimeManager::getLocalTime();
+    int minutesNow = nowTm.tm_hour * 60 + nowTm.tm_min;
+
+    return (minutesNow >= sunriseAdj && minutesNow < sunsetAdj);
+}
+
+// ---------------------------------------------------------
+// NEXT SMART OPEN
 // ---------------------------------------------------------
 String Scheduler_getNextOpen() {
     if (!TimeManager::isValid()) return "--:--";
@@ -85,9 +108,7 @@ String Scheduler_getNextOpen() {
     Scheduler_calcLocalSunTimes(sunriseRaw, sunsetRaw);
 
     int offset = Config_getOpenOffset();
-    int sunriseAdj = sunriseRaw + offset;
-    if (sunriseAdj < 0) sunriseAdj += 1440;
-    if (sunriseAdj >= 1440) sunriseAdj -= 1440;
+    int sunriseAdj = wrapMinutes(sunriseRaw + offset);
 
     int minutesNow = nowTm.tm_hour * 60 + nowTm.tm_min;
 
@@ -108,15 +129,13 @@ String Scheduler_getNextOpen() {
     );
 
     int srRaw = (int)sun.calcSunrise();
-    int sr = srRaw + offset;
-    if (sr < 0) sr += 1440;
-    if (sr >= 1440) sr -= 1440;
+    int sr = wrapMinutes(srRaw + offset);
 
     return formatSmartTime(sr, offset, &tomorrow);
 }
 
 // ---------------------------------------------------------
-// NEXT SMART CLOSE (raw sunset + offset)
+// NEXT SMART CLOSE
 // ---------------------------------------------------------
 String Scheduler_getNextClose() {
     if (!TimeManager::isValid()) return "--:--";
@@ -126,9 +145,7 @@ String Scheduler_getNextClose() {
     Scheduler_calcLocalSunTimes(sunriseRaw, sunsetRaw);
 
     int offset = Config_getCloseOffset();
-    int sunsetAdj = sunsetRaw + offset;
-    if (sunsetAdj < 0) sunsetAdj += 1440;
-    if (sunsetAdj >= 1440) sunsetAdj -= 1440;
+    int sunsetAdj = wrapMinutes(sunsetRaw + offset);
 
     int minutesNow = nowTm.tm_hour * 60 + nowTm.tm_min;
 
@@ -149,9 +166,7 @@ String Scheduler_getNextClose() {
     );
 
     int ssRaw = (int)sun.calcSunset();
-    int ss = ssRaw + offset;
-    if (ss < 0) ss += 1440;
-    if (ss >= 1440) ss -= 1440;
+    int ss = wrapMinutes(ssRaw + offset);
 
     return formatSmartTime(ss, offset, &tomorrow);
 }
@@ -164,37 +179,23 @@ static void SchedulerTask(void* pvParameters) {
     tzset();
 
     SchedulerContext* c = ctx;
-    const TickType_t interval = pdMS_TO_TICKS(60000); // 60 seconds
+    const TickType_t interval = pdMS_TO_TICKS(60000);
     c->lastWake = xTaskGetTickCount();
 
     for (;;) {
         vTaskDelayUntil(&c->lastWake, interval);
 
-        if (!TimeManager::isValid())
+        if (!TimeManager::isValid()) {
+            addLog("Scheduler → Time invalid, skipping");
             continue;
+        }
 
-        if (remoteOverride)
+        if (remoteOverride) {
+            addLog("Scheduler → Override active, skipping");
             continue;
+        }
 
-        int sunriseRaw, sunsetRaw;
-        Scheduler_calcLocalSunTimes(sunriseRaw, sunsetRaw);
-
-        int openOffset  = Config_getOpenOffset();
-        int closeOffset = Config_getCloseOffset();
-
-        int sunriseAdj = sunriseRaw + openOffset;
-        int sunsetAdj  = sunsetRaw + closeOffset;
-
-        if (sunriseAdj < 0) sunriseAdj += 1440;
-        if (sunriseAdj >= 1440) sunriseAdj -= 1440;
-
-        if (sunsetAdj < 0) sunsetAdj += 1440;
-        if (sunsetAdj >= 1440) sunsetAdj -= 1440;
-
-        struct tm nowTm = TimeManager::getLocalTime();
-        int minutesNow = nowTm.tm_hour * 60 + nowTm.tm_min;
-
-        bool shouldBeOpen = (minutesNow >= sunriseAdj && minutesNow < sunsetAdj);
+        bool shouldBeOpen = Scheduler_shouldBeOpenNow();
         MotorDoorState state = Motor_getState();
 
         if (shouldBeOpen) {
@@ -226,9 +227,9 @@ void SchedulerTask_begin() {
             "SchedulerTask",
             4096,
             nullptr,
-            2,      // low priority (below MotorTask)
+            2,
             &s_schedulerTaskHandle,
-            1       // same core as AutoMode + Motor
+            1
         );
         addLog("Scheduler → Task started");
     }

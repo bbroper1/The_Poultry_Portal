@@ -37,6 +37,14 @@ enum TelegramEventType {
     EVT_CLOSE,
     EVT_AUTO,
 
+    // NEW: Manual override duration selections
+    EVT_OVERRIDE_15,
+    EVT_OVERRIDE_30,
+    EVT_OVERRIDE_60,
+    EVT_OVERRIDE_SUNSET,
+    EVT_OVERRIDE_SUNRISE,
+    EVT_OVERRIDE_CANCEL,
+
     // Menus / navigation
     EVT_SHOW_MAIN_MENU,
     EVT_SHOW_SETTINGS,
@@ -95,10 +103,10 @@ enum TelegramEventType {
     EVT_DEBUG_ON,
     EVT_DEBUG_OFF,
 
-    //Evnet logs
-    EVT_SHOW_LOGS,        // open logs page 0
-    EVT_LOGS_NEXT,        // next page
-    EVT_LOGS_PREV,        // previous page
+    // Event logs
+    EVT_SHOW_LOGS,
+    EVT_LOGS_NEXT,
+    EVT_LOGS_PREV,
     EVT_LOGS_FIRST,
     EVT_LOGS_LAST,
 
@@ -159,10 +167,18 @@ struct TelegramEvent {
         if (txt == "/timezone" || txt == "🕒 Timezone")  return EVT_SHOW_TIMEZONE;
         if (txt == "🔧 Motor Menu")                      return EVT_SHOW_MOTOR_MENU;
 
-        // Door control
+        // Door control (now triggers override menu)
         if (txt == "/open"  || txt == "👐 Open")         return EVT_OPEN;
         if (txt == "/close" || txt == "🚪 Close")        return EVT_CLOSE;
         if (txt == "/auto"  || txt == "🤖 Auto")         return EVT_AUTO;
+
+        // NEW: Override duration selections
+        if (txt == "15 min")         return EVT_OVERRIDE_15;
+        if (txt == "30 min")         return EVT_OVERRIDE_30;
+        if (txt == "1 hour")         return EVT_OVERRIDE_60;
+        if (txt == "Until Sunset")   return EVT_OVERRIDE_SUNSET;
+        if (txt == "Until Sunrise")  return EVT_OVERRIDE_SUNRISE;
+        if (txt == "Cancel Override")return EVT_OVERRIDE_CANCEL;
 
         // Simulation
         if (txt == "/sim on")         return EVT_SIM_ON;
@@ -199,11 +215,11 @@ struct TelegramEvent {
         if (txt == "🔘 Limit Debug")  return EVT_DEBUG_LIMITS;
         if (txt == "⚡ Energy Debug") return EVT_DEBUG_ENERGY;
         if (txt == "📑 Full Debug")   return EVT_DEBUG_ALL;
-        if (txt == "📝 Logs") return EVT_SHOW_LOGS;
-        if (txt == "Next ▶") return EVT_LOGS_NEXT;
-        if (txt == "◀ Prev") return EVT_LOGS_PREV;
-        if (txt == "⏮ First") return EVT_LOGS_FIRST;
-        if (txt == "Last ⏭") return EVT_LOGS_LAST;
+        if (txt == "📝 Logs")         return EVT_SHOW_LOGS;
+        if (txt == "Next ▶")          return EVT_LOGS_NEXT;
+        if (txt == "◀ Prev")          return EVT_LOGS_PREV;
+        if (txt == "⏮ First")         return EVT_LOGS_FIRST;
+        if (txt == "Last ⏭")          return EVT_LOGS_LAST;
 
         // Debug config / toggle
         if (txt == "/debugon")  return EVT_DEBUG_ON;
@@ -222,7 +238,7 @@ struct TelegramEvent {
                     break;
                 }
             }
-            if (numeric) return EVT_MOTOR_VALUE;   // MotorHandler will decide context
+            if (numeric) return EVT_MOTOR_VALUE;
         }
 
         // Help

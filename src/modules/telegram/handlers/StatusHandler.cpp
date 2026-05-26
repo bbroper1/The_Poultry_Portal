@@ -10,11 +10,58 @@
 #include "TimeUtils.h"
 #include "../../time/TimeManager.h"
 
+// ---------------------------------------------------------
+// Formatting Helpers
+// ---------------------------------------------------------
+
+String StatusHandler::blockHeader(const String& emoji, const String& title) {
+    return emoji + " *" + title + "*\n━━━━━━━━━━━━━━━\n";
+}
+
+String StatusHandler::kv(const String& label, const String& value) {
+    return "• " + label + ": " + value + "\n";
+}
+
+String StatusHandler::formatDoorState(int state) {
+    switch (state) {
+        case M_OPEN:    return "OPEN ✅";
+        case M_CLOSED:  return "CLOSED 🌙";
+        case M_OPENING: return "OPENING ⚙️";
+        case M_CLOSING: return "CLOSING ⚙️";
+        case M_STUCK:   return "STUCK ⚠️";
+    }
+    return "UNKNOWN";
+}
+
+String StatusHandler::formatTempLabel(float c) {
+    if (c >= 40) return "🔥 HOT";
+    if (c <= 0)  return "❄️ COLD";
+    return "🙂 OK";
+}
+
+String StatusHandler::formatRemaining(time_t until) {
+    time_t now = time(nullptr);
+    if (until <= now) return "0m";
+
+    int sec = until - now;
+    int min = sec / 60;
+    int hr  = min / 60;
+
+    if (hr > 0)
+        return String(hr) + "h " + String(min % 60) + "m";
+
+    return String(min) + "m";
+}
+
+// ---------------------------------------------------------
+// Main Handler
+// ---------------------------------------------------------
+
 void StatusHandler::handle(const TelegramEvent& evt, TelegramClient* client) {
 
     String kbd = kbMain();
 
-    // Ensure time is valid before showing anything
+    // Ensure time is valid
     if (!TimeManager::isValid()) {
         client->sendMessageWithKeyboard(
             evt.chatId,
@@ -27,69 +74,65 @@ void StatusHandler::handle(const TelegramEvent& evt, TelegramClient* client) {
     // Pull system snapshot
     SystemStatus s = SystemStatus_get();
 
-    // ---------------------------------------------------------
-    // Battery percentage estimation
-    // ---------------------------------------------------------
+    // Battery %
     float v = s.batteryVoltage;
     int pct = (v >= 13.3) ? 100 :
               (v >= 13.1) ?  70 :
               (v >= 12.9) ?  30 :
               (v >= 12.0) ?  10 : 0;
 
-    // ---------------------------------------------------------
-    // Door state
-    // ---------------------------------------------------------
-    String stateStr;
-    switch (s.doorState) {
-        case M_OPEN:    stateStr = "OPEN ✅"; break;
-        case M_CLOSED:  stateStr = "CLOSED 🌙"; break;
-        case M_OPENING: stateStr = "OPENING ⚙️"; break;
-        case M_CLOSING: stateStr = "CLOSING ⚙️"; break;
-        case M_STUCK:   stateStr = "STUCK ⚠️"; break;
-    }
-
-    // ---------------------------------------------------------
-    // Temperature label
-    // ---------------------------------------------------------
-    String tempLabel;
-    if (s.temperatureC >= 40) tempLabel = "🔥 HOT";
-    else if (s.temperatureC <= 0) tempLabel = "❄️ COLD";
-    else tempLabel = "🙂 OK";
-
-    // ---------------------------------------------------------
     // Build message
-    // ---------------------------------------------------------
     String m;
-    m.reserve(600); // avoid fragmentation
+    m.reserve(700);
 
+    // ---------------------------------------------------------
+    // HEADER
+    // ---------------------------------------------------------
     m += "📊 *POULTRY PORTAL v" + String(VERSION) + "*\n";
     m += "━━━━━━━━━━━━━━━\n";
 
-    m += "🧪 Simulation: ";
-    m += Config_isSimulatedHardware() ? "ON\n" : "OFF\n";
+    // ---------------------------------------------------------
+    // SYSTEM SUMMARY
+    // ---------------------------------------------------------
+    m += kv("🧪 Simulation", Config_isSimulatedHardware() ? "ON" : "OFF");
+    m += kv("🚪 Door", formatDoorState(s.doorState));
+    m += kv("🔋 Battery", String(v, 1) + "V (" + String(pct) + "%)");
 
-    m += "🚪 Door: " + stateStr + "\n";
-    m += "🔋 Batt: " + String(v, 1) + "V (" + String(pct) + "%)\n";
-    m += "⚡ Today: " + String(Energy_getTodaymAh(), 1) + " mAh\n";
-    m += "🌡️ Temp: " + String(s.temperatureC, 1) + "°C " + tempLabel + "\n";
+    // ENERGY SUMMARY
+    m += "⚡ *ENERGY TODAY*\n";
+    m += "• System: " + String(EnergySys_getTodaymAh(), 1) + " mAh\n";
+    m += "• Motor:  " + String(EnergyMotor_getTodaymAh(), 1) + " mAh\n";
 
-    m += "📍 Location: ";
-    m += String(Config_getLat(), 4) + ", " + String(Config_getLong(), 4) + "\n";
+    // TEMP
+    m += kv("🌡️ Temp", String(s.temperatureC, 1) + "°C " + formatTempLabel(s.temperatureC));
 
-    m += "⏱️ Uptime: " + TimeUtils::getUptime() + "\n";
+    // LOCATION
+    m += kv("📍 Location",
+            String(Config_getLat(), 4) + ", " + String(Config_getLong(), 4));
 
-    m += "⚙️ Mode: ";
-    m += remoteOverride ? "MANUAL 🛠️\n" : "AUTO 🤖\n";
+    // UPTIME
+    m += kv("⏱️ Uptime", TimeUtils::getUptime());
+
+    // MODE
+    if (remoteOverride) {
+        String left = formatRemaining(remoteOverrideUntil);
+        String untilStr = TimeUtils::formatTimestamp(remoteOverrideUntil);
+        m += kv("⚙️ Mode", "MANUAL 🛠️ (" + left + " left)");
+        m += kv("⏳ Until", untilStr);
+    } else {
+        m += kv("⚙️ Mode", "AUTO 🤖");
+    }
 
     m += "━━━━━━━━━━━━━━━\n";
 
-    char buf[16];
-
-    m += "🌅 Next Open:  "  + Scheduler_getNextOpen()  + "\n";
-    m += "🌇 Next Close: "  + Scheduler_getNextClose() + "\n";
+    // ---------------------------------------------------------
+    // SCHEDULER
+    // ---------------------------------------------------------
+    m += kv("🌅 Next Open", Scheduler_getNextOpen());
+    m += kv("🌇 Next Close", Scheduler_getNextClose());
 
     // ---------------------------------------------------------
-    // Send
+    // SEND
     // ---------------------------------------------------------
     client->sendMessageWithKeyboard(evt.chatId, m, kbd);
 }

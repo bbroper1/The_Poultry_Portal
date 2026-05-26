@@ -1,13 +1,11 @@
 #pragma once
+#include "TelegramEvent.h"
+#include "TelegramClient.h"
 
-#include "modules/telegram/TelegramEvent.h"
+class TelegramHandler {
+public:
+    static void handle(const TelegramEvent& evt, TelegramClient* client);
 
-// Forward declaration to avoid heavy includes in the header
-class TelegramClient;
-
-namespace TelegramHandler {
-
-    // Public dispatcher for all Telegram events
-    void handle(const TelegramEvent& evt, TelegramClient* client);
-
-} // namespace TelegramHandler
+private:
+    static String blockHeader(const String& emoji, const String& title);
+};

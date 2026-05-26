@@ -17,6 +17,9 @@
 // ---------------------------------------------------------
 // CONTEXT
 // ---------------------------------------------------------
+
+TaskHandle_t s_displayTaskHandle = nullptr;
+
 struct DisplayContext {
     Adafruit_SSD1306 display;
     bool ok;
@@ -34,7 +37,6 @@ struct DisplayContext {
 };
 
 static DisplayContext* ctx = nullptr;
-static TaskHandle_t s_displayTaskHandle = nullptr;
 
 // ---------------------------------------------------------
 // BATTERY ICON (same one you already used)
@@ -78,54 +80,63 @@ static void drawMain(DisplayContext* c) {
     c->display.setTextSize(1);
     c->display.setTextColor(SSD1306_WHITE);
 
-    // Battery icon
+    // -----------------------------------------------------
+    // TOP STATUS BAR
+    // -----------------------------------------------------
     drawBatteryIcon(c->display, s.batteryVoltage);
 
-    // Voltage
     c->display.setCursor(26, 0);
     c->display.print(s.batteryVoltage, 1);
     c->display.print("V");
 
-    // Auto/Manual
     c->display.setCursor(70, 0);
-    c->display.print(Config_getAutoMode() ? "AUTO" : "MAN");
+    c->display.print(Config_getAutoMode() ? "A" : "M");
 
-    // Simulation
     if (Config_isSimulatedHardware()) {
         c->display.setCursor(100, 0);
-        c->display.print("SIM");
+        c->display.print("S");
     }
 
-    // Temperature
+    // -----------------------------------------------------
+    // TEMPERATURE
+    // -----------------------------------------------------
     c->display.setCursor(0, 14);
-    c->display.print("Temp ");
+    c->display.print("T:");
     c->display.print((int)s.temperatureC);
     c->display.print("C");
 
-    // Open / Close (two rows)
+    // -----------------------------------------------------
+    // OPEN/CLOSE TIMES
+    // -----------------------------------------------------
     c->display.setCursor(0, 26);
-    c->display.print("Open   ");
+    c->display.print("O:");
     c->display.print(openTime);
 
     c->display.setCursor(0, 36);
-    c->display.print("Close  ");
+    c->display.print("C:");
     c->display.print(closeTime);
 
-    // Door state
-    c->display.setCursor(0, 48);
-    c->display.print("Door   ");
-    switch (s.doorState) {
-        case M_OPEN:    c->display.print("OPEN"); break;
-        case M_CLOSED:  c->display.print("CLOSED"); break;
-        case M_OPENING: c->display.print("OPENING"); break;
-        case M_CLOSING: c->display.print("CLOSING"); break;
-        case M_STUCK:   c->display.print("STUCK"); break;
-    }
+    // -----------------------------------------------------
+    // DOOR STATE (BIG + CENTERED)
+    // -----------------------------------------------------
+    c->display.setTextSize(2);
 
-    // Version bottom-right
-    c->display.setCursor(80, 54);
-    c->display.print("v");
-    c->display.print(VERSION);
+    const char* label =
+        (s.doorState == M_OPEN)    ? "OPEN" :
+        (s.doorState == M_CLOSED)  ? "CLOSED" :
+        (s.doorState == M_OPENING) ? "OPENING" :
+        (s.doorState == M_CLOSING) ? "CLOSING" :
+                                     "STUCK";
+
+    int16_t x1, y1;
+    uint16_t w, h;
+    c->display.getTextBounds(label, 0, 0, &x1, &y1, &w, &h);
+
+    int x = (128 - w) / 2;
+    int y = 48;
+
+    c->display.setCursor(x, y);
+    c->display.print(label);
 
     c->display.display();
 }
@@ -143,41 +154,34 @@ static void drawInfo(DisplayContext* c) {
     c->display.setTextSize(1);
     c->display.setTextColor(SSD1306_WHITE);
 
-    // Sunrise
     c->display.setCursor(0, 0);
-    c->display.print("Sunrise ");
+    c->display.print("Rise ");
     c->display.print(sr / 60);
     c->display.print(":");
     if (sr % 60 < 10) c->display.print("0");
     c->display.println(sr % 60);
 
-    // Sunset
-    c->display.print("Sunset  ");
+    c->display.print("Set  ");
     c->display.print(ss / 60);
     c->display.print(":");
     if (ss % 60 < 10) c->display.print("0");
     c->display.println(ss % 60);
 
-    // Offsets
-    c->display.print("OpenOff  ");
-    c->display.print(Config_getOpenOffset());
-    c->display.println("m");
+    c->display.print("OffO ");
+    c->display.println(Config_getOpenOffset());
 
-    c->display.print("CloseOff ");
-    c->display.print(Config_getCloseOffset());
-    c->display.println("m");
+    c->display.print("OffC ");
+    c->display.println(Config_getCloseOffset());
 
-    // Energy
-    c->display.print("Energy   ");
-    c->display.print(Energy_getTodaymAh(), 1);
-    c->display.println("mAh");
+    c->display.print("Sys ");
+    c->display.print(EnergySys_getTodaymAh(), 1);
+    c->display.print("  Mot ");
+    c->display.println(EnergyMotor_getTodaymAh(), 1);
 
-    // Cycles
-    c->display.print("Cycles   ");
+    c->display.print("Cycles ");
     c->display.println(s.openCycles + s.closeCycles);
 
-    // Health
-    c->display.print("Health   ");
+    c->display.print("Health ");
     c->display.println(SystemStatus_getHealthLabel(s));
 
     c->display.display();

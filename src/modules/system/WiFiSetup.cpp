@@ -1,27 +1,43 @@
 #include "WiFiSetup.h"
+
 #include "modules/system/Globals.h"
 #include "modules/system/Logging.h"
+#include "modules/time/TimeManager.h"
+#include "modules/scheduler/SunContext.h"
 #include "Config.h"
 
 #include <WiFiManager.h>
 #include <Arduino.h>
 
-// ---------------------------------------------------------
-// WiFi + Telegram configuration via WiFiManager
-// ---------------------------------------------------------
 bool WiFiSetup_begin() {
     WiFiManager wm;
 
+    // Optional: silence WiFiManager debug spam
+    wm.setDebugOutput(false);
+
     // -----------------------------------------------------
-    // Handle factory reset request (from override switch)
+    // Factory Reset
     // -----------------------------------------------------
     if (factoryResetRequested) {
-        addLog("🧹 WiFiManager: resetting saved settings");
+        addLog("🧹 Factory Reset: clearing WiFi + Telegram settings");
+
         wm.resetSettings();
+
+        Config_setBotToken("");
+        Config_setChatID("");
+        Config_save();
+
+        factoryResetRequested = false;
     }
 
+    // -----------------------------------------------------
+    // WiFiManager behavior tuning
+    // -----------------------------------------------------
     wm.setConnectTimeout(20);
     wm.setConfigPortalTimeout(180);
+
+    // Always show custom fields
+    wm.setShowStaticFields(true);
 
     // -----------------------------------------------------
     // Custom WiFiManager parameters (Bot Token + Chat ID)
@@ -29,7 +45,6 @@ bool WiFiSetup_begin() {
     static char botTokenBuf[256];
     static char chatIdBuf[64];
 
-    // Load existing values from Config
     strlcpy(botTokenBuf, Config_getBotToken().c_str(), sizeof(botTokenBuf));
     strlcpy(chatIdBuf,   Config_getChatID().c_str(), sizeof(chatIdBuf));
 
@@ -53,6 +68,8 @@ bool WiFiSetup_begin() {
     // -----------------------------------------------------
     // Start WiFiManager AP
     // -----------------------------------------------------
+    addLog("📡 Starting WiFi setup portal: PoultryPortal_AP");
+
     if (!wm.autoConnect("PoultryPortal_AP")) {
         addLog("❌ WiFi connection failed");
         return false;
@@ -66,17 +83,32 @@ bool WiFiSetup_begin() {
     String newBotToken = p_botToken.getValue();
     String newChatId   = p_chatId.getValue();
 
-    if (newBotToken.length() > 0) {
+    bool changed = false;
+
+    if (newBotToken.length() > 0 && newBotToken != Config_getBotToken()) {
         Config_setBotToken(newBotToken);
-        addLog("Updated Bot Token via WiFi portal");
+        addLog("🔑 Updated Bot Token via WiFi portal");
+        changed = true;
     }
 
-    if (newChatId.length() > 0) {
+    if (newChatId.length() > 0 && newChatId != Config_getChatID()) {
         Config_setChatID(newChatId);
-        addLog("Updated Chat ID via WiFi portal");
+        addLog("💬 Updated Chat ID via WiFi portal");
+        changed = true;
     }
 
-    Config_save();
+    if (changed) {
+        Config_save();
+        addLog("💾 Telegram config saved");
+    } else {
+        addLog("ℹ️ No Telegram config changes");
+    }
+
+    // -----------------------------------------------------
+    // Sync NTP + refresh sunrise/sunset
+    // -----------------------------------------------------
+    TimeManager::syncNTP();
+    SunContext_refresh();
 
     return true;
 }

@@ -10,13 +10,20 @@
 #define MAX_LOGS 50
 #endif
 
+enum LogLevel {
+    LOG_INFO,
+    LOG_WARN,
+    LOG_ERROR
+};
+
 struct LogEntry {
     time_t timestamp;
     String message;
+    LogLevel level;
 };
 
 // Add a new log entry
-void addLog(const String& msg);
+void addLog(const String& msg, LogLevel level = LOG_INFO);
 
 // Number of logs currently stored
 int getLogCount();
@@ -27,8 +34,11 @@ LogEntry getLog(int index);
 // Clear all logs
 void clearLogs();
 
-// NEW: Get the most recent log entry as a string
+// Get the most recent log entry as a formatted string
 String Log_getLastAction();
 
-// Optional helper: format a log entry as "YYYY-MM-DD HH:MM:SS - message"
+// Format a log entry as "YYYY-MM-DD HH:MM:SS – message"
 String Log_formatEntry(const LogEntry& e);
+
+// Dump all logs into a single string (Telegram-friendly)
+String Log_dumpAll();

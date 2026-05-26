@@ -4,9 +4,21 @@
 #include "modules/system/Logging.h"
 #include <Arduino.h>
 
-namespace SimHandler {
+// ---------------------------------------------------------
+// Formatting Helpers
+// ---------------------------------------------------------
+String SimHandler::blockHeader(const String& emoji, const String& title) {
+    return emoji + " *" + title + "*\n━━━━━━━━━━━━━━━\n";
+}
 
-void handle(const TelegramEvent& evt, TelegramClient* client)
+String SimHandler::kv(const String& label, const String& value) {
+    return "• " + label + ": " + value + "\n";
+}
+
+// ---------------------------------------------------------
+// Handler
+// ---------------------------------------------------------
+void SimHandler::handle(const TelegramEvent& evt, TelegramClient* client)
 {
     const String& txt = evt.text;
 
@@ -15,8 +27,14 @@ void handle(const TelegramEvent& evt, TelegramClient* client)
     // ---------------------------------------------------------
     if (txt == "/sim on") {
         Config_setSimulatedHardware(true);
-        client->sendMessage(evt.chatId, "🧪 Simulation mode ENABLED");
         addLog("SIM → Enabled");
+
+        String out;
+        out.reserve(150);
+        out += blockHeader("🧪", "SIMULATION MODE");
+        out += "Simulation mode *ENABLED*.";
+
+        client->sendMessage(evt.chatId, out);
         return;
     }
 
@@ -25,8 +43,14 @@ void handle(const TelegramEvent& evt, TelegramClient* client)
     // ---------------------------------------------------------
     if (txt == "/sim off") {
         Config_setSimulatedHardware(false);
-        client->sendMessage(evt.chatId, "🧪 Simulation mode DISABLED");
         addLog("SIM → Disabled");
+
+        String out;
+        out.reserve(150);
+        out += blockHeader("🧪", "SIMULATION MODE");
+        out += "Simulation mode *DISABLED*.";
+
+        client->sendMessage(evt.chatId, out);
         return;
     }
 
@@ -35,10 +59,13 @@ void handle(const TelegramEvent& evt, TelegramClient* client)
     // ---------------------------------------------------------
     if (txt == "/sim status") {
         bool sim = Config_isSimulatedHardware();
-        client->sendMessage(
-            evt.chatId,
-            String("🧪 Simulation mode is ") + (sim ? "ON" : "OFF")
-        );
+
+        String out;
+        out.reserve(150);
+        out += blockHeader("🧪", "SIMULATION STATUS");
+        out += kv("Mode", sim ? "ON" : "OFF");
+
+        client->sendMessage(evt.chatId, out);
         return;
     }
 
@@ -46,6 +73,7 @@ void handle(const TelegramEvent& evt, TelegramClient* client)
     // /sim test
     // ---------------------------------------------------------
     if (txt == "/sim test") {
+
         if (!Config_isSimulatedHardware()) {
             client->sendMessage(
                 evt.chatId,
@@ -71,6 +99,7 @@ void handle(const TelegramEvent& evt, TelegramClient* client)
     // /sim jam
     // ---------------------------------------------------------
     if (txt == "/sim jam") {
+
         if (!Config_isSimulatedHardware()) {
             client->sendMessage(
                 evt.chatId,
@@ -81,12 +110,17 @@ void handle(const TelegramEvent& evt, TelegramClient* client)
 
         client->sendMessage(evt.chatId, "🧪 Simulating JAMMED door…");
 
-        // NEW: clean public API call
         Motor_forceStuck();
         addLog("SIM → Door forced to STUCK");
 
         return;
     }
-}
 
-} // namespace SimHandler
+    // ---------------------------------------------------------
+    // Unknown sim command
+    // ---------------------------------------------------------
+    client->sendMessage(
+        evt.chatId,
+        "❓ Unknown simulation command."
+    );
+}

@@ -1,4 +1,5 @@
 #include "modules/system/SupervisorTask.h"
+
 #include "modules/system/SystemStatus.h"
 #include "modules/system/Logging.h"
 #include "modules/system/Globals.h"
@@ -9,15 +10,14 @@
 #include "modules/sensors/SensorModule.h"
 #include "modules/energy/EnergyModule.h"
 #include "modules/scheduler/SchedulerTask.h"
-#include "modules/utils/MessageBus.h"
 
-#include "modules/telegram/TelegramMessage.h"
+#include "modules/telegram/TelegramClient.h"
 #include "modules/telegram/TelegramTask.h"
 
 #include "modules/automode/AutoModeTask.h"
 #include "modules/display/DisplayTask.h"
 
-#include "modules/time/TimeManager.h"   // ✅ FIXED — correct include
+#include "modules/time/TimeManager.h"
 
 #include <WiFi.h>
 #include <time.h>
@@ -26,7 +26,7 @@
 #include "freertos/task.h"
 
 // ---------------------------------------------------------
-// External task handles (declared in each module)
+// External task handles
 // ---------------------------------------------------------
 extern TaskHandle_t s_motorTaskHandle;
 extern TaskHandle_t s_autoModeTaskHandle;
@@ -35,7 +35,6 @@ extern TaskHandle_t s_telegramTaskHandle;
 extern TaskHandle_t s_displayTaskHandle;
 extern TaskHandle_t s_sensorTaskHandle;
 
-// Supervisor task handle
 TaskHandle_t s_supervisorTaskHandle = nullptr;
 
 // ---------------------------------------------------------
@@ -48,13 +47,26 @@ static bool taskAlive(TaskHandle_t h) {
 }
 
 // ---------------------------------------------------------
-// Send alert via Telegram subsystem
+// Telegram alert (rate-limited)
 // ---------------------------------------------------------
+static time_t lastAlert = 0;
+
 static void supervisorAlert(const String& msg) {
-    TelegramOutMessage out;
-    out.chatId = strtoull(Config_getChatID().c_str(), nullptr, 10);
-    out.text = msg;
-    MessageBus::publish("telegram/out", out);
+    time_t now = time(nullptr);
+
+    // Rate limit: 1 alert every 20 seconds
+    if (now - lastAlert < 20)
+        return;
+
+    lastAlert = now;
+
+    String chat = Config_getChatID();
+    if (chat.length() == 0) return;
+
+    TelegramClient* client = TelegramTask::client();
+    if (client) {
+        client->sendMessage(strtoull(chat.c_str(), nullptr, 10), msg);
+    }
 }
 
 // ---------------------------------------------------------
@@ -67,7 +79,7 @@ static void SupervisorTask(void* pv) {
         SystemStatus s = SystemStatus_get();
 
         // -----------------------------------------------------
-        // 1. Task health monitoring
+        // 1. Task health monitoring (strict mode)
         // -----------------------------------------------------
         if (!taskAlive(s_motorTaskHandle)) {
             addLog("❌ MotorTask died");
@@ -109,18 +121,19 @@ static void SupervisorTask(void* pv) {
         }
 
         // -----------------------------------------------------
-        // 2. Battery safety
+        // 2. Battery safety (strict)
         // -----------------------------------------------------
-        if (Battery_isCritical()) {
-            addLog("🔴 CRITICAL BATTERY — Motor stopped");
+        if (Battery_isBrownout()) {
+            addLog("🔴 BROWNOUT — Motor stopped");
             Motor_stop();
-            supervisorAlert("🔴 *CRITICAL BATTERY!* Motor stopped.");
+            supervisorAlert("🔴 *BROWNOUT!* Motor stopped.");
         }
 
         // -----------------------------------------------------
-        // 3. Temperature safety
+        // 3. Temperature safety (strict)
         // -----------------------------------------------------
-        if (Sensor_getTemperature() > 60) {
+        float tempC = Sensor_getTemperature();
+        if (tempC > 60) {
             addLog("🔥 CRITICAL TEMP — Motor stopped");
             Motor_stop();
             supervisorAlert("🔥 *CRITICAL TEMPERATURE!* Motor stopped.");

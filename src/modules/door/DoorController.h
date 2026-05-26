@@ -1,5 +1,4 @@
 #pragma once
-
 #include <Arduino.h>
 
 namespace DoorController {
@@ -7,8 +6,8 @@ namespace DoorController {
     // High-level door actions
     void openDoor();
     void closeDoor();
-    void enableAutoMode(bool enabled);
 
-    // Optional: expose state if needed later
+    // Auto mode control
+    void enableAutoMode(bool enabled);
     bool isAutoMode();
 }

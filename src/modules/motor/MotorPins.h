@@ -1,25 +1,23 @@
 #pragma once
+#include <Arduino.h>
 
 // ---------------------------------------------------------
-// PWM settings for DRV8871
+// Relay H-bridge pins (2‑relay module)
 // ---------------------------------------------------------
-#define PWM_FREQ        20000      // 20 kHz
-#define PWM_RESOLUTION  10         // 10-bit resolution (0–1023)
+// IMPORTANT: These two pins must always be driven together
+// (00 = stop, 11 = run). MotorController enforces this.
+extern int PIN_MOTOR_A;   // Relay IN1 (GPIO 26)
+extern int PIN_MOTOR_B;   // Relay IN2 (GPIO 18)
 
 // ---------------------------------------------------------
-// DRV8871 motor driver pins
+// Magnetic limit switches (Hall sensors)
 // ---------------------------------------------------------
-extern int PIN_MOTOR_A;     // IN1 (GPIO 18)
-extern int PIN_MOTOR_B;     // IN2 (GPIO 26)
+// These are wired to output HIGH when magnet is present.
+extern int PIN_LIMIT_OPEN;    // Top limit (GPIO 33)
+extern int PIN_LIMIT_CLOSE;   // Bottom limit (GPIO 32)
 
 // ---------------------------------------------------------
-// Limit switches
+// Manual override switches (momentary buttons)
 // ---------------------------------------------------------
-extern int PIN_LIMIT_OPEN;   // GPIO 33
-extern int PIN_LIMIT_CLOSE;  // GPIO 32
-
-// ---------------------------------------------------------
-// Manual override switches
-// ---------------------------------------------------------
-extern int PIN_SWITCH_OPEN;   // GPIO 14
-extern int PIN_SWITCH_CLOSE;  // GPIO 27
+extern int PIN_SWITCH_OPEN;   // Manual open button (GPIO 14)
+extern int PIN_SWITCH_CLOSE;  // Manual close button (GPIO 27)

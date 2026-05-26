@@ -5,33 +5,50 @@
 
 namespace TimeManager {
 
+static bool s_timeValid = false;
+
+// ---------------------------------------------------------
+// Non-blocking NTP initialization
+// ---------------------------------------------------------
 void begin() {
-    // 1. Set timezone string
+    // Apply timezone string
     setenv("TZ", Config_getTimezone().c_str(), 1);
 
-    // 2. Start NTP sync
+    // Start NTP sync
     configTime(0, 0, "pool.ntp.org", "time.nist.gov");
 
-    // 3. Wait for valid time
-    time_t now = time(nullptr);
-    int retries = 0;
-    while (now < 1700000000 && retries < 50) {
-        delay(200);
-        now = time(nullptr);
-        retries++;
-    }
-
-    // 4. Apply timezone AFTER time is valid
-    tzset();
-
-    Serial.printf("TimeManager: final offset = %d\n", TimeManager::utcOffsetHours());
+    // Do NOT block here — SupervisorTask will monitor validity
+    s_timeValid = false;
 }
 
+// ---------------------------------------------------------
+// Force NTP resync
+// ---------------------------------------------------------
+void syncNTP() {
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    s_timeValid = false;
+}
+
+// ---------------------------------------------------------
+// Check if time is valid
+// ---------------------------------------------------------
 bool isValid() {
     time_t now = time(nullptr);
-    return now > 100000;   // or your preferred threshold
+
+    if (now > 1700000000) {   // ~2023+
+        if (!s_timeValid) {
+            tzset();          // Apply timezone AFTER valid time
+            s_timeValid = true;
+        }
+        return true;
+    }
+
+    return false;
 }
 
+// ---------------------------------------------------------
+// UTC offset in hours
+// ---------------------------------------------------------
 int utcOffsetHours() {
     time_t now = time(nullptr);
 
@@ -46,12 +63,17 @@ int utcOffsetHours() {
     return offset;
 }
 
+// ---------------------------------------------------------
+// Local time struct
+// ---------------------------------------------------------
 struct tm getLocalTime() {
     time_t now = time(nullptr);
-    struct tm t = *localtime(&now);
-    return t;
+    return *localtime(&now);
 }
 
+// ---------------------------------------------------------
+// Format timestamp (no seconds)
+// ---------------------------------------------------------
 String formatTimestamp(time_t t) {
     if (t <= 0) return "N/A";
 
@@ -62,4 +84,24 @@ String formatTimestamp(time_t t) {
     return String(buf);
 }
 
-} // namespace TimeManager  
+// ---------------------------------------------------------
+// Format timestamp with seconds
+// ---------------------------------------------------------
+String formatTimestampSeconds(time_t t) {
+    if (t <= 0) return "N/A";
+
+    struct tm tmInfo = *localtime(&t);
+
+    char buf[32];
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tmInfo);
+    return String(buf);
+}
+
+// ---------------------------------------------------------
+// Monotonic uptime in seconds
+// ---------------------------------------------------------
+unsigned long uptimeSeconds() {
+    return millis() / 1000;
+}
+
+} // namespace TimeManager

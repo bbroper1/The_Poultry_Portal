@@ -2,8 +2,17 @@
 #include "../../keyboards/TelegramKeyboards.h"
 #include "../../config/Config.h"
 
+// ---------------------------------------------------------
+// Formatting Helper
+// ---------------------------------------------------------
+String TimezoneHandler::blockHeader(const String& emoji, const String& title) {
+    return emoji + " *" + title + "*\n━━━━━━━━━━━━━━━\n";
+}
+
+// ---------------------------------------------------------
 // Normalize Unicode punctuation
-static String normalizeTZ(String s) {
+// ---------------------------------------------------------
+String TimezoneHandler::normalizeTZ(String s) {
     s.toLowerCase();
     s.trim();
     s.replace("–", "-");
@@ -15,17 +24,21 @@ static String normalizeTZ(String s) {
     return s;
 }
 
+// ---------------------------------------------------------
+// Handler
+// ---------------------------------------------------------
 void TimezoneHandler::handle(const TelegramEvent& evt, TelegramClient* client) {
 
     // ---------------------------------------------------------
     // BACK BUTTON
     // ---------------------------------------------------------
     if (evt.type == EVT_BACK) {
-        client->sendMessageWithKeyboard(
-            evt.chatId,
-            "⚙️ *SETTINGS*\n━━━━━━━━━━━━━━━\nAdjust system configuration below.",
-            kbSettings()
-        );
+        String out;
+        out.reserve(200);
+        out += blockHeader("⚙️", "SETTINGS");
+        out += "Adjust system configuration below.";
+
+        client->sendMessageWithKeyboard(evt.chatId, out, kbSettings());
         return;
     }
 
@@ -33,12 +46,12 @@ void TimezoneHandler::handle(const TelegramEvent& evt, TelegramClient* client) {
     // EUROPE OTHER (placeholder)
     // ---------------------------------------------------------
     if (evt.type == EVT_TIMEZONE_OTHER_EUROPE) {
-        client->sendMessageWithKeyboard(
-            evt.chatId,
-            "🇪🇺 Europe Other is not implemented yet.\n"
-            "Try: *UK*, *CET*, *EET* or type a city like *Paris* or *Berlin*.",
-            kbTimezone()
-        );
+        String out;
+        out.reserve(200);
+        out += blockHeader("🇪🇺", "EUROPE OTHER");
+        out += "Not implemented yet.\nTry: *UK*, *CET*, *EET* or type a city like *Paris* or *Berlin*.";
+
+        client->sendMessageWithKeyboard(evt.chatId, out, kbTimezone());
         return;
     }
 
@@ -127,21 +140,27 @@ void TimezoneHandler::handle(const TelegramEvent& evt, TelegramClient* client) {
             return;
         }
 
-        // Unknown
-        client->sendMessageWithKeyboard(
-            evt.chatId,
-            "❓ I didn’t recognize that timezone.\nTry: *central*, *pst*, *utc+1*, *london*, *sydney*",
-            kbSettings()
-        );
-        return;
+        // ---------- UNKNOWN ----------
+        {
+            String out;
+            out.reserve(200);
+            out += blockHeader("❓", "UNKNOWN TIMEZONE");
+            out += "I didn’t recognize that timezone.\nTry: *central*, *pst*, *utc+1*, *london*, *sydney*";
+
+            client->sendMessageWithKeyboard(evt.chatId, out, kbSettings());
+            return;
+        }
     }
 
     // ---------------------------------------------------------
-    // 3. Show timezone menu
+    // SHOW TIMEZONE MENU
     // ---------------------------------------------------------
-    client->sendMessageWithKeyboard(
-        evt.chatId,
-        "🕒 *TIMEZONE SETTINGS*\n━━━━━━━━━━━━━━━\nChoose your local timezone below.",
-        kbTimezone()
-    );
+    {
+        String out;
+        out.reserve(200);
+        out += blockHeader("🕒", "TIMEZONE SETTINGS");
+        out += "Choose your local timezone below.";
+
+        client->sendMessageWithKeyboard(evt.chatId, out, kbTimezone());
+    }
 }

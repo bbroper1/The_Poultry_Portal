@@ -5,7 +5,7 @@
 #include <freertos/task.h>
 
 #include "TelegramClient.h"
-#include "TelegramMessage.h"
+#include "TelegramEvent.h"
 
 extern TaskHandle_t s_telegramTaskHandle;
 
@@ -14,8 +14,14 @@ public:
     explicit TelegramTask(TelegramClient* client);
     void start();
 
+    // Global accessor for SupervisorTask and handlers
+    static TelegramClient* client();
+
+    // Convenience helper for outbound alerts
+    static void sendMessageToOwner(const String& text);
+
 private:
-    TelegramClient* client;
+    TelegramClient* _client;
 
     static void taskEntry(void* pv);
     void run();

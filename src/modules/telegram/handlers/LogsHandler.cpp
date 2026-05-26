@@ -4,24 +4,42 @@
 #include "Logging.h"
 #include "modules/utils/TimeUtils.h"
 
-static const int LOGS_PER_PAGE = 10;
+// ---------------------------------------------------------
+// Static members
+// ---------------------------------------------------------
+const int LogsHandler::LOGS_PER_PAGE = 10;
+int LogsHandler::currentPage = 0;
 
+// ---------------------------------------------------------
+// Formatting Helper
+// ---------------------------------------------------------
+String LogsHandler::blockHeader(const String& emoji, const String& title) {
+    return emoji + " *" + title + "*\n━━━━━━━━━━━━━━━\n";
+}
+
+// ---------------------------------------------------------
+// Handler
+// ---------------------------------------------------------
 void LogsHandler::handle(const TelegramEvent& evt, TelegramClient* client) {
 
     int total = getLogCount();
+
+    // ---------------------------------------------------------
+    // No logs
+    // ---------------------------------------------------------
     if (total == 0) {
-        client->sendMessageWithKeyboard(
-            evt.chatId,
-            "📋 *RECENT ACTIVITY*\n━━━━━━━━━━━━━━━\nNo logs yet.",
-            kbMain()
-        );
+        String out;
+        out.reserve(200);
+        out += blockHeader("📋", "RECENT ACTIVITY");
+        out += "No logs yet.";
+
+        client->sendMessageWithKeyboard(evt.chatId, out, kbMain());
         return;
     }
 
-    // Persistent page index
-    static int currentPage = 0;
-
-    // Determine action
+    // ---------------------------------------------------------
+    // Page navigation
+    // ---------------------------------------------------------
     switch (evt.type) {
         case EVT_SHOW_LOGS:
             currentPage = 0;
@@ -52,12 +70,13 @@ void LogsHandler::handle(const TelegramEvent& evt, TelegramClient* client) {
     if (currentPage < 0) currentPage = 0;
     if (currentPage > maxPage) currentPage = maxPage;
 
+    // ---------------------------------------------------------
     // Build output
+    // ---------------------------------------------------------
     String out;
     out.reserve(2000);
 
-    out += "📋 *RECENT ACTIVITY*\n";
-    out += "━━━━━━━━━━━━━━━\n";
+    out += blockHeader("📋", "RECENT ACTIVITY");
     out += "Page " + String(currentPage + 1) + " of " + String(maxPage + 1) + "\n\n";
 
     // Newest → oldest

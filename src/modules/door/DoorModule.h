@@ -24,3 +24,12 @@ DoorState Door_getState();
 
 // Allows other modules to update the door state
 void Door_setState(DoorState state);
+
+// Timestamp of last state change
+time_t Door_getLastChangeTime();
+
+// Convenience helpers
+bool Door_isOpen();
+bool Door_isClosed();
+bool Door_isMoving();
+bool Door_isError();

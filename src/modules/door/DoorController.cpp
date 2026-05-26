@@ -1,13 +1,8 @@
 #include "DoorController.h"
 #include "modules/door/DoorModule.h"
-#include "modules/motor/MotorTask.h"     // <-- Correct motor API
+#include "modules/motor/MotorTask.h"
 #include "modules/config/Config.h"
-
-namespace {
-
-    // Cache auto mode locally (mirrors Config)
-    bool autoMode = false;
-}
+#include "modules/system/Logging.h"
 
 namespace DoorController {
 
@@ -15,11 +10,15 @@ namespace DoorController {
 // OPEN DOOR
 // ---------------------------------------------------------
 void openDoor() {
+    MotorDoorState st = Motor_getState();
 
-    // Update door state machine
+    if (st == M_OPEN || st == M_OPENING) {
+        addLog("DoorController → Already open/opening");
+        return;
+    }
+
+    addLog("DoorController → Opening door");
     Door_setState(DOOR_MOVING);
-
-    // Trigger motor
     Motor_requestOpen();
 }
 
@@ -27,9 +26,15 @@ void openDoor() {
 // CLOSE DOOR
 // ---------------------------------------------------------
 void closeDoor() {
+    MotorDoorState st = Motor_getState();
 
+    if (st == M_CLOSED || st == M_CLOSING) {
+        addLog("DoorController → Already closed/closing");
+        return;
+    }
+
+    addLog("DoorController → Closing door");
     Door_setState(DOOR_MOVING);
-
     Motor_requestClose();
 }
 
@@ -37,15 +42,12 @@ void closeDoor() {
 // AUTO MODE
 // ---------------------------------------------------------
 void enableAutoMode(bool enabled) {
-
-    autoMode = enabled;
-
-    // Persist to config
+    addLog(String("DoorController → AutoMode = ") + (enabled ? "ON" : "OFF"));
     Config_setAutoMode(enabled);
 }
 
 bool isAutoMode() {
-    return autoMode;
+    return Config_getAutoMode();
 }
 
 } // namespace DoorController

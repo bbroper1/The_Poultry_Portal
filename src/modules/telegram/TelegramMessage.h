@@ -4,8 +4,7 @@
 
 // ---------------------------------------------------------
 // Outgoing Telegram message
-// Published to MessageBus channel: "telegram/out"
-// Consumed by TelegramTask to send via HTTPS
+// Used by SupervisorTask, handlers, and TelegramTask
 // ---------------------------------------------------------
 struct TelegramOutMessage {
     uint64_t chatId = 0;

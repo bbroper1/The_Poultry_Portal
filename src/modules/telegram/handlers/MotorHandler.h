@@ -1,12 +1,15 @@
 #pragma once
-#include "../../telegram/TelegramEvent.h"
-#include "../../telegram/TelegramClient.h"
+#include "../TelegramEvent.h"
+#include "../TelegramClient.h"
 
-namespace MotorHandler {
+class MotorHandler {
+public:
+    static void handle(const TelegramEvent& evt, TelegramClient* client);
 
-extern bool waitingForTimeout;
-extern bool waitingForPinch;
-
-void handle(const TelegramEvent& evt, TelegramClient* client);
-
-} // namespace MotorHandler
+private:
+    static bool isNumber(const String& s);
+    static String blockHeader(const String& emoji, const String& title);
+    static String kv(const String& label, const String& value);
+    static String formatDoorState(int state);
+    static void sendMotorStatus(uint64_t chatId, TelegramClient* client);
+};

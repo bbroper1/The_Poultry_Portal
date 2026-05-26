@@ -1,7 +1,5 @@
 #include "TelegramTask.h"
-#include "TelegramClient.h"
 #include "TelegramHandler.h"
-#include "TelegramEvent.h"
 #include "modules/config/Config.h"
 
 #include <Arduino.h>
@@ -10,8 +8,28 @@
 
 TaskHandle_t s_telegramTaskHandle = nullptr;
 
+// Static pointer for global access
+static TelegramClient* s_client = nullptr;
+
 TelegramTask::TelegramTask(TelegramClient* client)
-    : client(client) {}
+    : _client(client)
+{
+    s_client = client;   // ⭐ Global pointer for SupervisorTask
+}
+
+TelegramClient* TelegramTask::client() {
+    return s_client;
+}
+
+void TelegramTask::sendMessageToOwner(const String& text) {
+    if (!s_client) return;
+
+    String chat = Config_getChatID();
+    if (chat.length() == 0) return;
+
+    uint64_t id = strtoull(chat.c_str(), nullptr, 10);
+    s_client->sendMessage(id, text);
+}
 
 void TelegramTask::start() {
     xTaskCreatePinnedToCore(
@@ -42,7 +60,7 @@ void TelegramTask::run() {
         // 1. Poll Telegram for updates
         // ---------------------------------------------------------
         TelegramUpdate update;
-        bool ok = client->getNextUpdate(update);
+        bool ok = _client->getNextUpdate(update);
 
         if (!ok) {
             vTaskDelay(pdMS_TO_TICKS(50));
@@ -54,14 +72,11 @@ void TelegramTask::run() {
         // ---------------------------------------------------------
         TelegramEvent evt;
 
-        // Chat ID
         evt.chatId = strtoull(update.chatId.c_str(), nullptr, 10);
-
-        // Text (may be empty)
-        evt.text = update.text;
+        evt.text   = update.text;
 
         // ---------------------------------------------------------
-        // LOCATION FIRST: detect pin drop before text routing
+        // LOCATION FIRST
         // ---------------------------------------------------------
         if (update.latitude != 0.0f || update.longitude != 0.0f) {
             evt.type      = EVT_LOCATION;
@@ -72,13 +87,13 @@ void TelegramTask::run() {
             Serial.println(">>> LAT = " + String(evt.latitude, 6));
             Serial.println(">>> LON = " + String(evt.longitude, 6));
 
-            TelegramHandler::handle(evt, client);
+            TelegramHandler::handle(evt, _client);
             vTaskDelay(pdMS_TO_TICKS(50));
             continue;
         }
 
         // ---------------------------------------------------------
-        // Otherwise classify based on text
+        // TEXT COMMAND
         // ---------------------------------------------------------
         evt.type = TelegramEvent::fromText(evt.text);
 
@@ -88,7 +103,7 @@ void TelegramTask::run() {
         // ---------------------------------------------------------
         // 3. Dispatch to TelegramHandler
         // ---------------------------------------------------------
-        TelegramHandler::handle(evt, client);
+        TelegramHandler::handle(evt, _client);
 
         // ---------------------------------------------------------
         // 4. Loop pacing

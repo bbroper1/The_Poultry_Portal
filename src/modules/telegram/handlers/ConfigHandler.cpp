@@ -2,9 +2,21 @@
 #include "modules/config/Config.h"
 #include "modules/system/Logging.h"
 
-namespace ConfigHandler {
+// ---------------------------------------------------------
+// Formatting Helpers
+// ---------------------------------------------------------
+String ConfigHandler::blockHeader(const String& emoji, const String& title) {
+    return emoji + " *" + title + "*\n━━━━━━━━━━━━━━━\n";
+}
 
-void handle(const TelegramEvent& evt, TelegramClient* client)
+String ConfigHandler::kv(const String& label, const String& value) {
+    return "• " + label + ": " + value + "\n";
+}
+
+// ---------------------------------------------------------
+// Main Handler
+// ---------------------------------------------------------
+void ConfigHandler::handle(const TelegramEvent& evt, TelegramClient* client)
 {
     const String& txt = evt.text;
 
@@ -12,6 +24,7 @@ void handle(const TelegramEvent& evt, TelegramClient* client)
     // /settoken <token>
     // ---------------------------------------------------------
     if (txt.startsWith("/settoken")) {
+
         int space = txt.indexOf(' ');
         if (space < 0) {
             client->sendMessage(evt.chatId,
@@ -31,8 +44,12 @@ void handle(const TelegramEvent& evt, TelegramClient* client)
         Config_setBotToken(token);
         addLog("CONFIG → Bot token updated");
 
-        client->sendMessage(evt.chatId,
-            "✅ Bot token saved.\nReboot recommended.");
+        String out;
+        out.reserve(200);
+        out += blockHeader("🔐", "BOT TOKEN UPDATED");
+        out += "New token saved.\nReboot recommended.";
+
+        client->sendMessage(evt.chatId, out);
         return;
     }
 
@@ -40,6 +57,7 @@ void handle(const TelegramEvent& evt, TelegramClient* client)
     // /setchat <chat_id>
     // ---------------------------------------------------------
     if (txt.startsWith("/setchat")) {
+
         int space = txt.indexOf(' ');
         if (space < 0) {
             client->sendMessage(evt.chatId,
@@ -59,10 +77,21 @@ void handle(const TelegramEvent& evt, TelegramClient* client)
         Config_setChatID(chat);
         addLog("CONFIG → Chat ID updated");
 
-        client->sendMessage(evt.chatId,
-            "✅ Chat ID saved.\nReboot recommended.");
+        String out;
+        out.reserve(200);
+        out += blockHeader("💬", "CHAT ID UPDATED");
+        out += kv("Chat ID", chat);
+        out += "\nReboot recommended.";
+
+        client->sendMessage(evt.chatId, out);
         return;
     }
-}
 
-} // namespace ConfigHandler
+    // ---------------------------------------------------------
+    // Unknown command
+    // ---------------------------------------------------------
+    client->sendMessage(
+        evt.chatId,
+        "❓ Unknown config command."
+    );
+}

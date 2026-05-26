@@ -1,25 +1,25 @@
 #include "MenuHandler.h"
 #include "../../keyboards/TelegramKeyboards.h"
 
-// If you want to log menu opens, include Logging.h
-// #include "Logging.h"
+// ---------------------------------------------------------
+// Formatting Helper
+// ---------------------------------------------------------
+String MenuHandler::blockHeader(const String& emoji, const String& title) {
+    return emoji + " *" + title + "*\n━━━━━━━━━━━━━━━\n";
+}
 
+// ---------------------------------------------------------
+// Handler
+// ---------------------------------------------------------
 void MenuHandler::handle(const TelegramEvent& evt, TelegramClient* client) {
 
-    // Main menu keyboard
     String kbd = kbMain();
 
-    // Optional: log menu access
-    // addLog("Menu → Main menu opened");
+    String out;
+    out.reserve(200);
 
-    String msg =
-        "📋 *MAIN MENU*\n"
-        "━━━━━━━━━━━━━━━\n"
-        "Choose an option below.";
+    out += blockHeader("📋", "MAIN MENU");
+    out += "Choose an option below.";
 
-    client->sendMessageWithKeyboard(
-        evt.chatId,
-        msg,
-        kbd
-    );
+    client->sendMessageWithKeyboard(evt.chatId, out, kbd);
 }

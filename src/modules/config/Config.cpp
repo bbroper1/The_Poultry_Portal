@@ -20,7 +20,7 @@ static int s_motorTimeout      = 8000;
 static int s_pinchThreshold    = 300;
 
 static bool s_autoMode         = false;
-static bool s_simulatedHardware = true;   // NEW
+static bool s_simulatedHardware = false;   // NEW
 
 // ---------------------------------------------------------
 // Load all settings
@@ -41,8 +41,8 @@ void Config_load() {
     s_motorTimeout   = prefs.getInt("motTO", 8000);
     s_pinchThreshold = prefs.getInt("pinch", 300);
 
-    s_autoMode        = prefs.getBool("auto", false);
-    s_simulatedHardware = prefs.getBool("simHW", false);   // NEW
+    s_autoMode          = prefs.getBool("auto", false);
+    s_simulatedHardware = prefs.getBool("simHW", false);
 }
 
 // ---------------------------------------------------------
@@ -63,7 +63,7 @@ void Config_save() {
     prefs.putInt("pinch", s_pinchThreshold);
 
     prefs.putBool("auto", s_autoMode);
-    prefs.putBool("simHW", s_simulatedHardware);   // NEW
+    prefs.putBool("simHW", s_simulatedHardware);
 }
 
 // ---------------------------------------------------------
@@ -83,7 +83,7 @@ int Config_getMotorTimeout()      { return s_motorTimeout; }
 int Config_getPinchThreshold()    { return s_pinchThreshold; }
 
 bool Config_getAutoMode()         { return s_autoMode; }
-bool Config_isSimulatedHardware() { return s_simulatedHardware; }   // NEW
+bool Config_isSimulatedHardware() { return s_simulatedHardware; }
 
 // ---------------------------------------------------------
 // SETTERS
@@ -102,4 +102,4 @@ void Config_setMotorTimeout(int v)       { s_motorTimeout = v; prefs.putInt("mot
 void Config_setPinchThreshold(int v)     { s_pinchThreshold = v; prefs.putInt("pinch", v); }
 
 void Config_setAutoMode(bool v)          { s_autoMode = v; prefs.putBool("auto", v); }
-void Config_setSimulatedHardware(bool v) { s_simulatedHardware = v; prefs.putBool("simHW", v); }  // NEW
+void Config_setSimulatedHardware(bool v) { s_simulatedHardware = v; prefs.putBool("simHW", v); }
